@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Users, Calendar, FileText, Package, Settings, Image, Stethoscope, LogOut } from 'lucide-react';
+import { Home, Users, Calendar, FileText, Package, Settings, Image, LogOut } from 'lucide-react';
 
 const navItems = [
   { to: '/',              icon: Home,     label: 'Inicio',             color: 'from-indigo-500 to-indigo-600', shadow: 'shadow-indigo-200' },
@@ -16,16 +16,8 @@ export default function Layout({ children, onLogout, session }) {
     <div className="flex h-screen bg-slate-100">
       <aside className="w-52 bg-white border-r border-slate-100 flex flex-col flex-shrink-0 shadow-sm">
         {/* Logo */}
-        <div className="p-5 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl flex items-center justify-center shadow-md shadow-indigo-200">
-              <Stethoscope size={18} className="text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-slate-800 leading-tight">Dentra</p>
-              <p className="text-xs text-slate-400">Sistema de Gestión</p>
-            </div>
-          </div>
+        <div className="p-4 border-b border-slate-100">
+          <img src="/logo.png" alt="Dentra" className="h-8 w-auto" />
           {session && (
             <div className="mt-3 px-2 py-1.5 bg-indigo-50 rounded-lg">
               <p className="text-xs font-semibold text-indigo-700 truncate">{session.clinic}</p>
@@ -50,7 +42,6 @@ export default function Layout({ children, onLogout, session }) {
           ))}
         </nav>
 
-        {/* Footer */}
         <div className="p-3 border-t border-slate-100 space-y-2">
           <button onClick={onLogout}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all">
