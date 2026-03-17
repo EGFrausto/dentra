@@ -37,11 +37,8 @@ export default function Login({ onLogin }) {
         <div className="bg-white/10 backdrop-blur-xl rounded-3xl border border-white/20 shadow-2xl p-8">
           {/* Logo */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-2xl shadow-xl shadow-indigo-900/50 mb-4">
-              <Stethoscope size={28} className="text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Dentra</h1>
-            <p className="text-indigo-300 text-sm mt-1">Sistema de Gestión Dental</p>
+            <img src="/logo.png" alt="Dentra" className="h-14 w-auto mx-auto brightness-0 invert" />
+            <p className="text-indigo-300 text-sm mt-3">Sistema de Gestión Dental</p>
           </div>
 
           {/* Form */}
