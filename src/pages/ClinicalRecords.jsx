@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Edit2, Trash2, FileText, PenLine, Trash, Download, StickyNote } from 'lucide-react';
-import { patients as pStore, records as rStore } from '../lib/store';
+import { Search, Plus, Edit2, Trash2, FileText, PenLine, Trash, Download, StickyNote, FileCheck, ClipboardList } from 'lucide-react';
+import { patients as pStore, records as rStore, consents as cStore, plans as plStore, profile as profStore } from '../lib/store';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import ConfirmModal from '../components/ConfirmModal';
+import AlertModal from '../components/AlertModal';
+import Odontogram from '../components/Odontogram';
 
+// ─── Constants ────────────────────────────────────────────────
 const UPPER = [18,17,16,15,14,13,12,11,21,22,23,24,25,26,27,28];
 const LOWER = [48,47,46,45,44,43,42,41,31,32,33,34,35,36,37,38];
 const STATES = ['Sano','Cariado','Extraído','Tratado'];
@@ -14,36 +17,27 @@ const STATE_STYLE = {
   Extraído:{ btn:'bg-red-100 text-red-600 border-red-300',        tooth:'border-red-400 bg-red-50 text-red-600 line-through' },
   Tratado: { btn:'bg-blue-100 text-blue-700 border-blue-300',     tooth:'border-blue-400 bg-blue-50 text-blue-700' },
 };
-const EMPTY = { patient_id:'', date:new Date().toISOString().split('T')[0], teeth:'', reason:'', diagnosis:'', treatment:'', medications:'', next_steps:'', notes:'', odontogram:{}, signature:'' };
+const EMPTY_RECORD = { patient_id:'', date:new Date().toISOString().split('T')[0], teeth:'', reason:'', diagnosis:'', treatment:'', medications:'', next_steps:'', notes:'', odontogram:{}, signature:'' };
+const CONSENT_TYPES = ['Consulta general','Extracción dental','Endodoncia','Implante dental','Ortodoncia','Blanqueamiento','Cirugía oral','Anestesia general'];
+const TREATMENTS_PLAN = ['Limpieza dental','Consulta general','Endodoncia (conducto)','Extracción','Ortodoncia','Blanqueamiento','Implante dental','Corona','Puente','Cirugía oral','Radiografía','Otro'];
+const PRIORITIES = ['Alta','Media','Baja'];
+const PRIORITY_BADGE = { Alta:'badge badge-red', Media:'badge badge-amber', Baja:'badge badge-slate' };
 
+// ─── Signature Canvas ─────────────────────────────────────────
 function SignatureCanvas({ value, onChange }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const lastPos = useRef(null);
-
   useEffect(() => {
     const canvas = canvasRef.current, ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
     if (value) { const img = new Image(); img.onload = () => ctx.drawImage(img,0,0); img.src = value; }
   }, []);
-
-  const getPos = (e, canvas) => {
-    const rect = canvas.getBoundingClientRect(), touch = e.touches ? e.touches[0] : e;
-    return { x:(touch.clientX-rect.left)*(canvas.width/rect.width), y:(touch.clientY-rect.top)*(canvas.height/rect.height) };
-  };
+  const getPos = (e, c) => { const r=c.getBoundingClientRect(),t=e.touches?e.touches[0]:e; return {x:(t.clientX-r.left)*(c.width/r.width),y:(t.clientY-r.top)*(c.height/r.height)}; };
   const startDraw = e => { e.preventDefault(); drawing.current=true; lastPos.current=getPos(e,canvasRef.current); };
-  const draw = e => {
-    e.preventDefault();
-    if (!drawing.current) return;
-    const canvas=canvasRef.current, ctx=canvas.getContext('2d'), pos=getPos(e,canvas);
-    ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(pos.x,pos.y);
-    ctx.strokeStyle='#1e293b'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke();
-    lastPos.current=pos;
-  };
-  const endDraw = e => { e.preventDefault(); if (!drawing.current) return; drawing.current=false; onChange(canvasRef.current.toDataURL()); };
-  const clear = () => { const canvas=canvasRef.current, ctx=canvas.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height); onChange(''); };
-
+  const draw = e => { e.preventDefault(); if(!drawing.current)return; const c=canvasRef.current,ctx=c.getContext('2d'),pos=getPos(e,c); ctx.beginPath();ctx.moveTo(lastPos.current.x,lastPos.current.y);ctx.lineTo(pos.x,pos.y);ctx.strokeStyle='#1e293b';ctx.lineWidth=2;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();lastPos.current=pos; };
+  const endDraw = e => { e.preventDefault(); if(!drawing.current)return; drawing.current=false; onChange(canvasRef.current.toDataURL()); };
+  const clear = () => { const c=canvasRef.current,ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);onChange(''); };
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
@@ -51,30 +45,35 @@ function SignatureCanvas({ value, onChange }) {
         <button type="button" onClick={clear} className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-500 transition-colors"><Trash size={12}/> Limpiar</button>
       </div>
       <p className="text-xs text-slate-400 mb-2">El paciente puede firmar aquí con Apple Pencil o con el dedo</p>
-      <canvas ref={canvasRef} width={640} height={180}
-        className="w-full border-2 border-dashed border-slate-200 rounded-xl bg-white cursor-crosshair"
-        style={{touchAction:'none'}}
+      <canvas ref={canvasRef} width={640} height={180} className="w-full border-2 border-dashed border-slate-200 rounded-xl bg-white cursor-crosshair" style={{touchAction:'none'}}
         onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
         onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}/>
     </div>
   );
 }
 
-function exportPDF(r, patientName) {
+// ─── Export PDF Historia ──────────────────────────────────────
+function exportPDF(r, patientName, prof) {
   const TOOTH_STYLE = { Cariado:'border-color:#f59e0b;background:#fffbeb;color:#b45309;', Extraído:'border-color:#ef4444;background:#fef2f2;color:#dc2626;text-decoration:line-through;', Tratado:'border-color:#3b82f6;background:#eff6ff;color:#1d4ed8;' };
-  const tooth = t => `<div style="width:26px;height:26px;border:2px solid #e2e8f0;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;${TOOTH_STYLE[r.odontogram[t]]||''}">${t}</div>`;
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>
-    *{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:36px}
-    .hdr{display:flex;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:14px;margin-bottom:20px}
-    .brand{font-size:20px;font-weight:800;color:#4f46e5}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}
-    .sec{font-size:12px;font-weight:700;color:#4f46e5;margin:16px 0 8px;border-left:3px solid #4f46e5;padding-left:7px}
-    .box{background:#f8fafc;border-radius:7px;padding:10px;margin-bottom:8px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
-    .lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.4px;display:block;margin-bottom:3px}
-    .footer{margin-top:28px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}
-    .teeth{display:flex;gap:3px;flex-wrap:wrap;justify-content:center}
-  </style></head><body>
-    <div class="hdr"><div class="brand">Dentra<span>Sistema de Gestión Dental</span></div><div style="text-align:right"><div style="font-size:16px;font-weight:700">Historia Clínica</div><div style="color:#64748b;font-size:11px">${r.date}</div></div></div>
+  const tooth = t => `<div style="width:26px;height:26px;border:2px solid #e2e8f0;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;${TOOTH_STYLE[r.odontogram?.[t]]||''}">${t}</div>`;
+  
+  const docName = prof?.doctor_name ? `${prof.doctor_prefix} ${prof.doctor_name}` : 'Dentra';
+  const clinicName = prof?.name || 'Sistema de Gestión Dental';
+  const address = prof?.show_address_in_pdfs ? prof?.address : '';
+  const phone = prof?.show_phone_in_pdfs ? prof?.phone : '';
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:36px}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:20px}.brand{font-size:20px;font-weight:800;color:#1e293b}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}.sec{font-size:12px;font-weight:700;color:#1e293b;margin:16px 0 8px;border-left:3px solid #334155;padding-left:7px}.box{background:#f8fafc;border-radius:7px;padding:10px;margin-bottom:8px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}.lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.4px;display:block;margin-bottom:3px}.footer{margin-top:28px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}.teeth{display:flex;gap:3px;flex-wrap:wrap;justify-content:center}</style></head><body>
+    <div class="hdr">
+      <div class="brand">${clinicName}<span>${docName} ${prof?.specialty ? `· ${prof.specialty}` : ''}</span></div>
+      <div style="text-align:right">
+        <div style="font-size:16px;font-weight:700">Historia Clínica</div>
+        <div style="color:#64748b;font-size:10px;margin-top:2px">
+          ${address ? `<div>${address}</div>` : ''}
+          ${phone ? `<div>Tel: ${phone}</div>` : ''}
+          <div style="margin-top:4px;font-weight:600">${r.date}</div>
+        </div>
+      </div>
+    </div>
     <div class="grid2"><div class="box"><span class="lbl">Paciente</span>${patientName}</div><div class="box"><span class="lbl">Fecha</span>${r.date}</div></div>
     ${r.teeth?`<div class="box"><span class="lbl">Pieza(s)</span>${r.teeth}</div>`:''}
     ${r.reason?`<div class="sec">Motivo de Consulta</div><div class="box">${r.reason}</div>`:''}
@@ -84,111 +83,132 @@ function exportPDF(r, patientName) {
     ${r.notes?`<div class="sec">Notas Clínicas</div><div class="box">${r.notes}</div>`:''}
     ${Object.keys(r.odontogram||{}).length>0?`<div class="sec">Odontograma</div><div class="box"><div class="teeth">${UPPER.map(tooth).join('')}</div><div style="text-align:center;font-size:9px;color:#94a3b8;padding:4px 0;border-top:1px dashed #e2e8f0;border-bottom:1px dashed #e2e8f0;margin:4px 0">Superior / Inferior</div><div class="teeth">${LOWER.map(tooth).join('')}</div></div>`:''}
     ${r.signature?`<div class="sec">Firma del Paciente</div><div class="box" style="text-align:center"><img src="${r.signature}" style="max-height:80px"/></div>`:''}
-    <div class="footer">Generado por Dentra · Powered by Atlara · ${new Date().toLocaleDateString('es-MX')}</div>
+    <div class="footer">${prof?.license ? `Cédula Profesional: ${prof.license} · ` : ''}Generado por Dentra · ${new Date().toLocaleDateString('es-MX')}</div>
   </body></html>`;
-  const win = window.open('', '_blank');
-  win.document.write(html);
-  win.document.close();
-  win.onload = () => win.print();
+  const win = window.open('', '_blank'); win.document.write(html); win.document.close(); win.onload = () => win.print();
 }
 
-export default function ClinicalRecords() {
-  const [pts, setPts]             = useState([]);
-  const [list, setList]           = useState([]);
+// ─── Tab: Historias ───────────────────────────────────────────
+function TabHistorias({ pts, prof }) {
+  const [list, setList]           = useState(() => rStore.getCached());
   const [search, setSearch]       = useState('');
   const [modal, setModal]         = useState(false);
   const [editing, setEditing]     = useState(null);
-  const [form, setForm]           = useState(EMPTY);
+  const [form, setForm]           = useState(EMPTY_RECORD);
   const [markAs, setMarkAs]       = useState('Cariado');
   const [noteModal, setNoteModal] = useState(null);
   const [noteText, setNoteText]   = useState('');
   const [confirmDel, setConfirmDel] = useState(null);
+  const [alert, setAlert] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => { setPts(pStore.get()); setList(rStore.get()); }, []);
-  const reload   = () => setList(rStore.get());
-  const getName  = id => pts.find(p => p.id === id)?.name || 'Desconocido';
+  useEffect(() => { 
+    reload();
+    const unsub = rStore.subscribe(setList);
+    const draft = localStorage.getItem('draft_historia');
+    if (draft) { setForm(JSON.parse(draft)); setModal(true); }
+    return unsub;
+  }, []);
 
-  const filtered = list.filter(r => {
-    const s = search.toLowerCase();
-    return getName(r.patient_id).toLowerCase().includes(s) || r.diagnosis?.toLowerCase().includes(s) || r.treatment?.toLowerCase().includes(s);
-  });
+  useEffect(() => {
+    if (modal && !editing) localStorage.setItem('draft_historia', JSON.stringify(form));
+    else localStorage.removeItem('draft_historia');
+  }, [form, modal, editing]);
 
-  const openNew  = () => { setForm(EMPTY); setEditing(null); setMarkAs('Cariado'); setModal(true); };
+  const reload  = () => rStore.get().then(setList);
+  const getName = id => pts.find(p=>p.id===id)?.name||'Desconocido';
+  const filtered = list.filter(r => { const s=search.toLowerCase(); return getName(r.patient_id).toLowerCase().includes(s)||r.diagnosis?.toLowerCase().includes(s)||r.treatment?.toLowerCase().includes(s); });
+
+  const openNew  = () => { setForm(EMPTY_RECORD); setEditing(null); setMarkAs('Cariado'); setModal(true); };
   const openEdit = r  => { setForm(r); setEditing(r.id); setMarkAs('Cariado'); setModal(true); };
-  const save = () => {
-    if (!form.patient_id || !form.date) return alert('Paciente y fecha son requeridos');
-    editing ? rStore.update(editing, form) : rStore.add(form);
-    reload(); setModal(false);
+  
+  const save = async () => { 
+    if (!form.patient_id||!form.date||!form.signature) { setAlert('Paciente, fecha y firma son requeridos'); return; } 
+    setSaving(true);
+    try {
+      editing ? await rStore.update(editing,form) : await rStore.add(form); 
+      await reload(); 
+      setModal(false); 
+      localStorage.removeItem('draft_historia');
+    } catch (err) {
+      setAlert('Error al guardar: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
-  const confirmDelete = () => { rStore.remove(confirmDel); reload(); setConfirmDel(null); };
-  const openNote  = r => { setNoteModal(r); setNoteText(r.quick_note || ''); };
-  const saveNote  = () => { rStore.update(noteModal.id, { quick_note: noteText }); reload(); setNoteModal(null); };
-  const toggleTooth = t => setForm(prev => {
-    const od = { ...prev.odontogram };
-    od[t] === markAs ? delete od[t] : od[t] = markAs;
-    return { ...prev, odontogram: od };
-  });
-  const tf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  const openNote = r => { setNoteModal(r); setNoteText(r.quick_note||''); };
+  
+  const saveNote = async () => { 
+    setSaving(true);
+    try {
+      await rStore.update(noteModal.id,{quick_note:noteText}); 
+      await reload(); 
+      setNoteModal(null); 
+    } catch (err) {
+      setAlert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    try {
+      await rStore.remove(confirmDel);
+      await reload();
+      setConfirmDel(null);
+    } catch (err) {
+      setAlert('Error al eliminar: ' + err.message);
+    }
+  };
+
+  const tf = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-7">
-        <h1 className="text-2xl font-bold text-slate-800">Historias Clínicas</h1>
-        <button onClick={openNew} className="btn-primary"><Plus size={16}/> Nueva Historia</button>
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <div className="relative flex-1 mr-4">
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por paciente, diagnóstico o tratamiento..." className="input-field pl-10"/>
+        </div>
+        <button onClick={openNew} className="btn-primary flex-shrink-0"><Plus size={16}/> Nueva Historia</button>
       </div>
-      <div className="relative mb-4">
-        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por paciente, diagnóstico o tratamiento..." className="input-field pl-10"/>
-      </div>
+
       <div className="card overflow-hidden">
-        {filtered.length === 0
-          ? <div className="py-16 text-center"><FileText size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-sm text-slate-400">No hay historias clínicas registradas</p></div>
-          : filtered.map(r => (
-            <div key={r.id} className="table-row group">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-semibold text-slate-700">{getName(r.patient_id)}</p>
-                  {r.quick_note && <span className="badge badge-amber flex items-center gap-1"><StickyNote size={10}/> Nota</span>}
-                  {r.signature  && <span className="badge badge-indigo flex items-center gap-1"><PenLine size={10}/> Firmada</span>}
+        {filtered.length===0
+          ?<div className="py-16 text-center"><FileText size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-sm text-slate-400">No hay historias clínicas registradas</p></div>
+          :filtered.map(r=>(
+            <div key={r.id} className="flex items-center justify-between p-3 px-5 bg-white hover:bg-slate-50 transition-all group border-b border-slate-50 last:border-0 relative">
+              <div className="flex-1 overflow-hidden">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold text-slate-700 truncate">{getName(r.patient_id)}</p>
+                  <div className="flex gap-1">
+                    {r.quick_note&&<span className="badge badge-amber py-0.5 px-1.5 text-[9px] flex items-center gap-1 uppercase tracking-wider"><StickyNote size={8}/> Nota</span>}
+                    {r.signature&&<span className="badge badge-indigo py-0.5 px-1.5 text-[9px] flex items-center gap-1 uppercase tracking-wider"><PenLine size={8}/> Firmada</span>}
+                  </div>
                 </div>
                 <div className="flex gap-3 mt-0.5 text-xs text-slate-400">
-                  <span>{r.date}</span>
-                  {r.diagnosis && <span>· {r.diagnosis}</span>}
-                  {r.treatment && <span>· {r.treatment}</span>}
+                  <span className="font-medium">{r.date}</span>{r.diagnosis&&<span className="truncate">· {r.diagnosis}</span>}{r.treatment&&<span className="truncate">· {r.treatment}</span>}
                 </div>
-                {r.quick_note && <p className="text-xs text-amber-600 mt-1 italic">"{r.quick_note}"</p>}
               </div>
-              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => openNote(r)} className="icon-btn" title="Nota rápida"><StickyNote size={14}/></button>
-                <button onClick={() => exportPDF(r, getName(r.patient_id))} className="icon-btn" title="Exportar PDF"><Download size={14}/></button>
-                <button onClick={() => openEdit(r)} className="icon-btn"><Edit2 size={14}/></button>
-                <button onClick={() => setConfirmDel(r.id)} className="icon-btn-danger"><Trash2 size={14}/></button>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
+                <button onClick={()=>openNote(r)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all" title="Nota rápida"><StickyNote size={15}/></button>
+                <button onClick={()=>exportPDF(r,getName(r.patient_id), prof)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Exportar PDF"><Download size={15}/></button>
+                <button onClick={()=>openEdit(r)} className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-all"><Edit2 size={15}/></button>
+                <button onClick={()=>setConfirmDel(r.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={15}/></button>
               </div>
             </div>
           ))
         }
       </div>
 
-      {noteModal && (
-        <Modal title={`Nota rápida — ${getName(noteModal.patient_id)}`} onClose={() => setNoteModal(null)}>
-          <div className="p-6">
-            <p className="text-xs text-slate-400 mb-3">Agrega una nota rápida visible en el listado</p>
-            <textarea value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Ej: Paciente sensible al frío, agendar seguimiento..." rows={4} className="input-field resize-none" autoFocus/>
-          </div>
-          <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
-            <button onClick={() => setNoteModal(null)} className="btn-secondary">Cancelar</button>
-            <button onClick={saveNote} className="btn-primary">Guardar nota</button>
-          </div>
-        </Modal>
-      )}
+      {noteModal&&(<Modal title={`Nota rápida — ${getName(noteModal.patient_id)}`} onClose={()=>setNoteModal(null)}><div className="p-6"><p className="text-xs text-slate-400 mb-3">Agrega una nota rápida visible en el listado</p><textarea value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Ej: Paciente sensible al frío..." rows={4} className="input-field resize-none" autoFocus/></div><div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100"><button onClick={()=>setNoteModal(null)} className="btn-secondary">Cancelar</button><button onClick={saveNote} disabled={saving} className="btn-primary">{saving?'Guardando...':'Guardar nota'}</button></div></Modal>)}
 
-      {modal && (
-        <Modal title={editing ? 'Editar Historia Clínica' : 'Nueva Historia Clínica'} onClose={() => setModal(false)} wide>
+      {modal&&(
+        <Modal title={editing?'Editar Historia Clínica':'Nueva Historia Clínica'} onClose={()=>setModal(false)} wide>
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="label">Paciente *</label>
-                <Select value={form.patient_id} onChange={v => setForm(p => ({...p, patient_id:v}))} placeholder="Seleccionar paciente..." options={pts.map(p => ({value:p.id, label:p.name}))}/>
-              </div>
+              <div><label className="label">Paciente *</label><Select value={form.patient_id} onChange={v=>setForm(p=>({...p,patient_id:v}))} placeholder="Seleccionar paciente..." options={pts.map(p=>({value:p.id,label:p.name}))}/></div>
               <div><label className="label">Fecha de visita *</label><input type="date" value={form.date} onChange={tf('date')} className="input-field"/></div>
             </div>
             <div><label className="label">Pieza(s) dental(es)</label><input value={form.teeth} onChange={tf('teeth')} placeholder="Ej: 11, 21, 22" className="input-field"/></div>
@@ -197,35 +217,354 @@ export default function ClinicalRecords() {
             <div><label className="label">Tratamiento realizado</label><textarea value={form.treatment} onChange={tf('treatment')} placeholder="Procedimiento realizado" rows={2} className="input-field resize-none"/></div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Medicamentos recetados</label><textarea value={form.medications} onChange={tf('medications')} placeholder="Nombre, dosis, frecuencia..." rows={3} className="input-field resize-none"/></div>
-              <div><label className="label">Próximos pasos / Indicaciones</label><textarea value={form.next_steps} onChange={tf('next_steps')} placeholder="Instrucciones para el paciente..." rows={3} className="input-field resize-none"/></div>
+              <div><label className="label">Próximos pasos</label><textarea value={form.next_steps} onChange={tf('next_steps')} placeholder="Instrucciones para el paciente..." rows={3} className="input-field resize-none"/></div>
             </div>
             <div><label className="label">Notas clínicas</label><textarea value={form.notes} onChange={tf('notes')} placeholder="Observaciones adicionales..." rows={2} className="input-field resize-none"/></div>
+            <Odontogram value={form.odontogram} onChange={od => setForm(p => ({...p, odontogram: od}))}/>
             <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
-              <p className="text-sm font-semibold text-slate-700 mb-1">Odontograma</p>
-              <p className="text-xs text-slate-400 mb-3">Selecciona un estado y haz clic en cada diente</p>
-              <div className="flex items-center gap-2 mb-4 flex-wrap">
-                {STATES.map(s => <button key={s} type="button" onClick={() => setMarkAs(s)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-all ${markAs===s ? STATE_STYLE[s].btn : 'border-transparent text-slate-400 hover:border-slate-200'}`}>{s}</button>)}
-              </div>
-              <div className="flex justify-center gap-1 mb-1 flex-wrap">
-                {UPPER.map(t => <button key={t} type="button" onClick={() => toggleTooth(t)} className={`w-8 h-8 border-2 rounded-lg text-xs font-semibold transition-all hover:scale-110 ${form.odontogram[t] ? STATE_STYLE[form.odontogram[t]].tooth : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>{t}</button>)}
-              </div>
-              <div className="text-center text-xs text-slate-300 my-1 border-t border-dashed border-slate-200 pt-1">Superior / Inferior</div>
-              <div className="flex justify-center gap-1 mt-1 flex-wrap">
-                {LOWER.map(t => <button key={t} type="button" onClick={() => toggleTooth(t)} className={`w-8 h-8 border-2 rounded-lg text-xs font-semibold transition-all hover:scale-110 ${form.odontogram[t] ? STATE_STYLE[form.odontogram[t]].tooth : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>{t}</button>)}
-              </div>
-            </div>
-            <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
-              <SignatureCanvas value={form.signature} onChange={sig => setForm(p => ({...p, signature:sig}))}/>
+              <SignatureCanvas value={form.signature} onChange={sig=>setForm(p=>({...p,signature:sig}))}/>
             </div>
           </div>
           <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
-            <button onClick={() => setModal(false)} className="btn-secondary">Cancelar</button>
-            <button onClick={save} className="btn-primary">Guardar historia</button>
+            <button onClick={()=>setModal(false)} className="btn-secondary">Cancelar</button>
+            <button onClick={save} disabled={saving} className="btn-primary">{saving?'Guardando...':'Guardar historia'}</button>
           </div>
         </Modal>
       )}
+      {alert && <AlertModal message={alert} onClose={() => setAlert(null)}/>}
+      {confirmDel&&<ConfirmModal message="¿Eliminar esta historia clínica?" onConfirm={confirmDelete} onCancel={()=>setConfirmDel(null)}/>}
+    </>
+  );
+}
 
-      {confirmDel && <ConfirmModal message="¿Eliminar esta historia clínica? Esta acción no se puede deshacer." onConfirm={confirmDelete} onCancel={() => setConfirmDel(null)}/>}
+// ─── Tab: Consentimientos ─────────────────────────────────────
+function TabConsents({ pts, prof }) {
+  const [list, setList]   = useState([]);
+  const [search, setSearch] = useState('');
+  const [modal, setModal] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [alert, setAlert] = useState(null);
+  const [form, setForm]   = useState({ patient_id:'', type:'', date:new Date().toISOString().split('T')[0], content:'', signature:'' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(()=>{ 
+    reload();
+    const unsub = cStore.subscribe(setList);
+    const draft = localStorage.getItem('draft_consent');
+    if (draft) { setForm(JSON.parse(draft)); setModal(true); }
+    return unsub;
+  },[]);
+
+  useEffect(() => {
+    if (modal) localStorage.setItem('draft_consent', JSON.stringify(form));
+    else localStorage.removeItem('draft_consent');
+  }, [form, modal]);
+
+  const reload  = ()=> cStore.get().then(setList);
+  const getName = id=>pts.find(p=>p.id===id)?.name||'Desconocido';
+  const filtered = list.filter(c=>getName(c.patient_id).toLowerCase().includes(search.toLowerCase())||c.type?.toLowerCase().includes(search.toLowerCase()));
+
+  const genContent = (type, pName) => `CONSENTIMIENTO INFORMADO - ${type?.toUpperCase()||''}\n\nYo, ${pName}, mayor de edad, de manera libre y voluntaria:\n\nDECLARO que el médico me ha informado sobre:\n1. El diagnóstico de mi condición dental actual.\n2. El procedimiento a realizar: ${type}.\n3. Los beneficios esperados del tratamiento.\n4. Los riesgos y posibles complicaciones asociadas.\n5. Las alternativas de tratamiento disponibles.\n\nAUTORIZO la realización del procedimiento indicado.\n\nFecha: ${new Date().toLocaleDateString('es-MX')}`;
+
+  const handleChange = (field, val) => setForm(prev => {
+    const updated = { ...prev, [field]: val };
+    const pName = field==='patient_id' ? (pts.find(p=>p.id===val)?.name||'') : getName(prev.patient_id);
+    const type  = field==='type' ? val : prev.type;
+    if (field==='patient_id'||field==='type') updated.content = genContent(type, pName);
+    return updated;
+  });
+
+  const save = async () => {
+    if (!form.patient_id||!form.type||!form.signature) { setAlert('Paciente, tipo y firma son requeridos'); return; }
+    setSaving(true);
+    try {
+      await cStore.add(form); 
+      await reload(); 
+      setModal(false);
+      localStorage.removeItem('draft_consent');
+      setForm({ patient_id:'', type:'', date:new Date().toISOString().split('T')[0], content:'', signature:'' });
+    } catch (err) {
+      setAlert('Error al guardar: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    try {
+      await cStore.remove(confirmDel);
+      await reload();
+      setConfirmDel(null);
+    } catch (err) {
+      setAlert('Error al eliminar: ' + err.message);
+    }
+  };
+
+  const exportConsentPDF = (c, prof) => {
+    const docName = prof?.doctor_name ? `${prof.doctor_prefix} ${prof.doctor_name}` : 'Dentra';
+    const clinicName = prof?.name || 'Sistema de Gestión Dental';
+    const address = prof?.show_address_in_pdfs ? prof?.address : '';
+    const phone = prof?.show_phone_in_pdfs ? prof?.phone : '';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:40px;line-height:1.6}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:24px}.brand{font-size:20px;font-weight:800;color:#1e293b}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}.content{white-space:pre-wrap;line-height:1.8;color:#374151}.sig{margin-top:32px;display:flex;justify-content:flex-end}.sig-box{text-align:center}.sig-box img{max-height:70px;display:block;margin:0 auto 8px}.sig-line{border-top:1px solid #1e293b;width:200px;padding-top:4px;font-size:11px;color:#94a3b8}.footer{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}</style></head><body>
+      <div class="hdr">
+        <div class="brand">${clinicName}<span>${docName} ${prof?.specialty ? `· ${prof.specialty}` : ''}</span></div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:#64748b">${c.date}</div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:2px">
+            ${address ? `<div>${address}</div>` : ''}
+            ${phone ? `<div>Tel: ${phone}</div>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="content">${c.content}</div>
+      <div class="sig"><div class="sig-box">${c.signature?`<img src="${c.signature}"/>`:'<div style="height:70px"></div>'}<div class="sig-line">Firma del Paciente · ${getName(c.patient_id)}</div></div></div>
+      <div class="footer">${prof?.license ? `Cédula Profesional: ${prof.license} · ` : ''}Generado por Dentra · ${new Date().toLocaleDateString('es-MX')}</div>
+    </body></html>`;
+    const win=window.open('','_blank'); win.document.write(html); win.document.close(); win.onload=()=>win.print();
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <div className="relative flex-1 mr-4"><Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por paciente o procedimiento..." className="input-field pl-10"/></div>
+        <button onClick={()=>setModal(true)} className="btn-primary flex-shrink-0"><Plus size={16}/> Nuevo Consentimiento</button>
+      </div>
+      <div className="card overflow-hidden">
+        {filtered.length===0
+          ?<div className="py-16 text-center"><FileCheck size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-sm text-slate-400">No hay consentimientos registrados</p></div>
+          :filtered.map(c=>(
+            <div key={c.id} className="flex items-center justify-between p-3 px-5 bg-white hover:bg-slate-50 transition-all group border-b border-slate-50 last:border-0 relative">
+              <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center flex-shrink-0"><FileCheck size={16} className="text-indigo-600"/></div>
+                <div className="overflow-hidden">
+                  <p className="text-sm font-bold text-slate-700 truncate">{getName(c.patient_id)}</p>
+                  <div className="flex gap-3 text-xs text-slate-400 mt-0.5">
+                    <span className="font-medium">{c.type}</span>
+                    <span className="truncate">· {c.date}</span>
+                    {c.signature&&<span className="flex items-center gap-1 text-slate-600 font-bold uppercase text-[9px] tracking-wider"><PenLine size={10}/> Firmado</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
+                <button onClick={()=>exportConsentPDF(c, prof)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Exportar PDF"><Download size={15}/></button>
+                <button onClick={()=>setConfirmDel(c.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={15}/></button>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+      {modal&&(
+        <Modal title="Nuevo Consentimiento Informado" onClose={()=>setModal(false)} wide>
+          <div className="p-6 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Paciente *</label><Select value={form.patient_id} onChange={v=>handleChange('patient_id',v)} placeholder="Seleccionar paciente..." options={pts.map(p=>({value:p.id,label:p.name}))}/></div>
+              <div><label className="label">Fecha</label><input type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))} className="input-field"/></div>
+            </div>
+            <div><label className="label">Tipo de procedimiento *</label><Select value={form.type} onChange={v=>handleChange('type',v)} placeholder="Seleccionar procedimiento..." options={CONSENT_TYPES}/></div>
+            <div><label className="label">Contenido</label><textarea value={form.content} onChange={e=>setForm(p=>({...p,content:e.target.value}))} rows={8} className="input-field resize-none font-mono text-xs"/></div>
+            <SignatureCanvas value={form.signature} onChange={sig=>setForm(p=>({...p,signature:sig}))}/>
+          </div>
+          <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
+            <button onClick={()=>setModal(false)} className="btn-secondary">Cancelar</button>
+            <button onClick={save} disabled={saving} className="btn-primary">
+              <FileCheck size={15} className="mr-1.5 inline"/> {saving ? 'Guardando...' : 'Guardar y firmar'}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {alert && <AlertModal message={alert} onClose={() => setAlert(null)}/>}
+      {confirmDel && <ConfirmModal message="¿Eliminar este consentimiento?" onConfirm={confirmDelete} onCancel={()=>setConfirmDel(null)}/>}
+    </>
+  );
+}
+
+// ─── Tab: Planes ──────────────────────────────────────────────
+function TabPlans({ pts }) {
+  const [list, setList]   = useState([]);
+  const [search, setSearch] = useState('');
+  const [modal, setModal] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [alert, setAlert] = useState(null);
+  const [form, setForm]   = useState({ patient_id:'', date:new Date().toISOString().split('T')[0], notes:'', items:[] });
+  const [newItem, setNewItem] = useState({ treatment:'', notes:'', priority:'Media' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(()=>{ 
+    reload();
+    const unsub = plStore.subscribe(setList);
+    const draft = localStorage.getItem('draft_plan');
+    if (draft) { setForm(JSON.parse(draft)); setModal(true); }
+    return unsub;
+  },[]);
+
+  useEffect(() => {
+    if (modal) localStorage.setItem('draft_plan', JSON.stringify(form));
+    else localStorage.removeItem('draft_plan');
+  }, [form, modal]);
+
+  const reload  = ()=> plStore.get().then(setList);
+  const getName = id=>pts.find(p=>p.id===id)?.name||'Desconocido';
+  const filtered = list.filter(p=>getName(p.patient_id).toLowerCase().includes(search.toLowerCase()));
+
+  const addItem = () => { if (!newItem.treatment) return; setForm(prev=>({...prev,items:[...prev.items,{...newItem,id:Date.now().toString(),done:false}]})); setNewItem({treatment:'',notes:'',priority:'Media'}); };
+  
+  const toggleItem = async (planId, itemId) => { 
+    const plan=list.find(p=>p.id===planId); 
+    const items=plan.items.map(i=>i.id===itemId?{...i,done:!i.done}:i); 
+    try {
+      await plStore.update(planId,{items}); 
+      await reload(); 
+    } catch (err) {
+      setAlert('Error: ' + err.message);
+    }
+  };
+
+  const save = async () => { 
+    if (!form.patient_id||form.items.length===0) { setAlert('Paciente y al menos un procedimiento son requeridos'); return; } 
+    setSaving(true);
+    try {
+      await plStore.add(form); 
+      await reload(); 
+      setModal(false); 
+      localStorage.removeItem('draft_plan');
+      setForm({patient_id:'',date:new Date().toISOString().split('T')[0],notes:'',items:[]}); 
+    } catch (err) {
+      setAlert('Error al guardar plan: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    try {
+      await plStore.remove(confirmDel);
+      await reload();
+      setConfirmDel(null);
+    } catch (err) {
+      setAlert('Error al eliminar: ' + err.message);
+    }
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <div className="relative flex-1 mr-4"><Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por paciente..." className="input-field pl-10"/></div>
+        <button onClick={()=>setModal(true)} className="btn-primary flex-shrink-0"><Plus size={16}/> Nuevo Plan</button>
+      </div>
+      {filtered.length===0
+        ?<div className="card py-16 text-center"><ClipboardList size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-sm text-slate-400">No hay planes de tratamiento</p></div>
+        :<div className="space-y-4">
+          {filtered.map(plan=>{
+            const done=(plan.items||[]).filter(i=>i.done).length, total=(plan.items||[]).length, pct=total>0?Math.round((done/total)*100):0;
+            return (
+              <div key={plan.id} className="card p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div><p className="font-semibold text-slate-700">{getName(plan.patient_id)}</p><p className="text-xs text-slate-400 mt-0.5">{plan.date} · {total} procedimientos</p></div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-600">{pct}% completado</span>
+                    <button onClick={()=>setConfirmDel(plan.id)} className="icon-btn-danger"><Trash2 size={14}/></button>
+                  </div>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-1.5 mb-4"><div className="bg-slate-700 h-1.5 rounded-full transition-all" style={{width:`${pct}%`}}/></div>
+                <div className="space-y-2">
+                  {(plan.items||[]).map(item=>(
+                    <div key={item.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${item.done?'bg-slate-50 border-slate-100 opacity-60':'bg-white border-slate-100 hover:border-slate-300'}`} onClick={()=>toggleItem(plan.id,item.id)}>
+                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${item.done?'bg-slate-700 border-slate-700':'border-slate-300'}`}>
+                        {item.done&&<div className="w-2 h-2 bg-white rounded-full"/>}
+                      </div>
+                      <p className={`text-sm font-medium flex-1 ${item.done?'line-through text-slate-400':'text-slate-700'}`}>{item.treatment}</p>
+                      {item.notes&&<p className="text-xs text-slate-400">{item.notes}</p>}
+                      <span className={PRIORITY_BADGE[item.priority]||'badge badge-slate'}>{item.priority}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      }
+      {modal&&(
+        <Modal title="Nuevo Plan de Tratamiento" onClose={()=>setModal(false)} wide>
+          <div className="p-6 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Paciente *</label><Select value={form.patient_id} onChange={v=>setForm(p=>({...p,patient_id:v}))} placeholder="Seleccionar paciente..." options={pts.map(p=>({value:p.id,label:p.name}))}/></div>
+              <div><label className="label">Fecha</label><input type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))} className="input-field"/></div>
+            </div>
+            <div><label className="label">Notas del plan</label><textarea value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} placeholder="Observaciones generales..." rows={2} className="input-field resize-none"/></div>
+            <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
+              <p className="text-sm font-semibold text-slate-700 mb-3">Procedimientos</p>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <Select value={newItem.treatment} onChange={v=>setNewItem(p=>({...p,treatment:v}))} placeholder="Tratamiento..." options={TREATMENTS_PLAN}/>
+                <input value={newItem.notes} onChange={e=>setNewItem(p=>({...p,notes:e.target.value}))} placeholder="Notas..." className="input-field"/>
+                <div className="flex gap-2">
+                  <Select value={newItem.priority} onChange={v=>setNewItem(p=>({...p,priority:v}))} options={PRIORITIES}/>
+                  <button onClick={addItem} className="btn-primary px-3 flex-shrink-0"><Plus size={15}/></button>
+                </div>
+              </div>
+              {form.items.length===0?<p className="text-xs text-slate-400 text-center py-3">Sin procedimientos aún</p>
+                :<div className="space-y-2">{form.items.map((item,i)=>(
+                  <div key={item.id} className="flex items-center gap-2 bg-white rounded-xl p-2.5 border border-slate-100">
+                    <span className="text-xs font-bold text-slate-400 w-5">{i+1}</span>
+                    <p className="text-sm text-slate-700 flex-1">{item.treatment}</p>
+                    {item.notes&&<p className="text-xs text-slate-400">{item.notes}</p>}
+                    <span className={PRIORITY_BADGE[item.priority]||'badge badge-slate'}>{item.priority}</span>
+                    <button onClick={()=>setForm(p=>({...p,items:p.items.filter((_,idx)=>idx!==i)}))} className="icon-btn-danger p-1"><Trash2 size={12}/></button>
+                  </div>
+                ))}</div>
+              }
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
+            <button onClick={()=>setModal(false)} className="btn-secondary">Cancelar</button>
+            <button onClick={save} disabled={saving} className="btn-primary">{saving ? 'Guardando...' : 'Guardar plan'}</button>
+          </div>
+        </Modal>
+      )}
+      {alert && <AlertModal message={alert} onClose={() => setAlert(null)}/>}
+      {confirmDel && <ConfirmModal message="¿Eliminar este plan?" onConfirm={confirmDelete} onCancel={()=>setConfirmDel(null)}/>}
+    </>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────
+export default function ClinicalRecords() {
+  const [pts, setPts] = useState(() => pStore.getCached());
+  const [prof, setProf] = useState(() => profStore.getCached());
+  const [tab, setTab] = useState('historias');
+
+  useEffect(() => { 
+    pStore.get().then(setPts); 
+    profStore.get().then(setProf);
+    const unsubs = [
+      pStore.subscribe(setPts),
+      profStore.subscribe(setProf)
+    ];
+    return () => unsubs.forEach(fn => fn());
+  }, []);
+
+  const tabs = [
+    { id:'historias',       label:'Historias Clínicas', icon:FileText },
+    { id:'consentimientos', label:'Consentimientos',     icon:FileCheck },
+    { id:'planes',          label:'Planes de Tratamiento', icon:ClipboardList },
+  ];
+
+  return (
+    <div className="p-8 pt-2">
+
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6 bg-slate-100 p-1 rounded-2xl w-fit">
+        {tabs.map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab===id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Icon size={15}/> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab==='historias'       && <TabHistorias       pts={pts} prof={prof}/>}
+      {tab==='consentimientos' && <TabConsents         pts={pts} prof={prof}/>}
+      {tab==='planes'          && <TabPlans            pts={pts} prof={prof}/>}
     </div>
   );
 }

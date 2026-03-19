@@ -4,22 +4,35 @@ import { patients as pStore, xrays as xStore } from '../lib/store';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import ConfirmModal from '../components/ConfirmModal';
+import AlertModal from '../components/AlertModal';
 
 const TYPES = ['Panorámica','Periapical','Bite-wing','Cefalométrica','Oclusal','CBCT (3D)'];
 
 export default function Xrays() {
-  const [pts,setPts]         = useState([]);
-  const [list,setList]       = useState([]);
+  const [pts,setPts]         = useState(() => pStore.getCached());
+  const [list,setList]       = useState(() => xStore.getCached());
   const [search,setSearch]   = useState('');
   const [modal,setModal]     = useState(false);
   const [preview,setPreview] = useState(null);
   const [filterPt,setFilterPt] = useState('');
   const [confirmDel,setConfirmDel] = useState(null);
+  const [alert, setAlert] = useState(null);
   const [form,setForm]       = useState({patient_id:'',type:'Panorámica',date:new Date().toISOString().split('T')[0],notes:'',image:''});
+  const [saving, setSaving]   = useState(false);
   const fileRef = useRef();
 
-  useEffect(()=>{setPts(pStore.get());setList(xStore.get());},[]);
-  const reload=()=>setList(xStore.get());
+  useEffect(()=>{
+    pStore.get().then(setPts);
+    xStore.get().then(setList);
+
+    const unsubs = [
+      pStore.subscribe(setPts),
+      xStore.subscribe(setList)
+    ];
+    return () => unsubs.forEach(fn => fn());
+  },[]);
+
+  const reload=()=>xStore.get().then(setList);
   const getName=id=>pts.find(p=>p.id===id)?.name||'Desconocido';
 
   const filtered=list.filter(x=>{
@@ -27,16 +40,52 @@ export default function Xrays() {
     return (name.includes(s)||x.type?.toLowerCase().includes(s))&&(!filterPt||x.patient_id===filterPt);
   });
 
-  const handleFile=e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>setForm(p=>({...p,image:ev.target.result}));r.readAsDataURL(file);};
-  const save=()=>{if(!form.patient_id||!form.image)return alert('Paciente e imagen son requeridos');xStore.add(form);reload();setModal(false);setForm({patient_id:'',type:'Panorámica',date:new Date().toISOString().split('T')[0],notes:'',image:''});};
-  const confirmDelete=()=>{xStore.remove(confirmDel);reload();setConfirmDel(null);};
-  const download=x=>{const a=document.createElement('a');a.href=x.image;a.download=`radiografia_${getName(x.patient_id)}_${x.date}.png`;a.click();};
+  const handleFile=e=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    const r=new FileReader();
+    r.onload=ev=>setForm(p=>({...p,image:ev.target.result}));
+    r.readAsDataURL(file);
+  };
+
+  const save=async ()=>{
+    if(!form.patient_id||!form.image){ setAlert('Paciente e imagen son requeridos'); return; }
+    setSaving(true);
+    try {
+      await xStore.add(form);
+      await reload();
+      setModal(false);
+      setForm({patient_id:'',type:'Panorámica',date:new Date().toISOString().split('T')[0],notes:'',image:''});
+    } catch (err) {
+      setAlert('Error al guardar: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete=async ()=>{
+    try {
+      await xStore.remove(confirmDel);
+      await reload();
+      setConfirmDel(null);
+    } catch (err) {
+      setAlert('Error al eliminar: ' + err.message);
+    }
+  };
+
+  const download=x=>{
+    const a=document.createElement('a');
+    a.href=x.image;
+    a.download=`radiografia_${getName(x.patient_id)}_${x.date}.png`;
+    a.click();
+  };
+
   const sf=(k,v)=>setForm(p=>({...p,[k]:v}));
 
   return (
-    <div className="p-8">
+    <div className="p-8 pt-2">
       <div className="flex items-center justify-between mb-7">
-        <div><h1 className="text-2xl font-bold text-slate-800">Radiografías</h1><p className="text-sm text-slate-400 mt-0.5">{list.length} archivos guardados</p></div>
+        <p className="text-sm text-slate-400 mt-0.5">{list.length} archivos guardados</p>
         <button onClick={()=>setModal(true)} className="btn-primary"><Plus size={16}/> Subir Radiografía</button>
       </div>
       <div className="flex gap-3 mb-5">
@@ -58,8 +107,8 @@ export default function Xrays() {
                 <div className="flex items-center justify-between mt-1">
                   <div><span className="badge badge-rose">{x.type}</span><p className="text-xs text-slate-400 mt-1">{x.date}</p></div>
                   <div className="flex gap-1">
-                    <button onClick={()=>download(x)} className="icon-btn"><Download size={14}/></button>
-                    <button onClick={()=>setConfirmDel(x.id)} className="icon-btn-danger"><Trash2 size={14}/></button>
+                    <button onClick={(e)=>{e.stopPropagation(); download(x);}} className="icon-btn"><Download size={14}/></button>
+                    <button onClick={(e)=>{e.stopPropagation(); setConfirmDel(x.id);}} className="icon-btn-danger"><Trash2 size={14}/></button>
                   </div>
                 </div>
                 {x.notes&&<p className="text-xs text-slate-400 mt-1 truncate">{x.notes}</p>}
@@ -89,7 +138,9 @@ export default function Xrays() {
           </div>
           <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
             <button onClick={()=>setModal(false)} className="btn-secondary">Cancelar</button>
-            <button onClick={save} className="btn-primary">Guardar radiografía</button>
+            <button onClick={save} disabled={saving} className="btn-primary">
+              {saving ? 'Guardando...' : 'Guardar radiografía'}
+            </button>
           </div>
         </Modal>
       )}
@@ -108,6 +159,7 @@ export default function Xrays() {
         </div>
       )}
 
+      {alert && <AlertModal message={alert} onClose={() => setAlert(null)}/>}
       {confirmDel&&<ConfirmModal message="¿Eliminar esta radiografía? Esta acción no se puede deshacer." onConfirm={confirmDelete} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );

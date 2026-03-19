@@ -4,22 +4,29 @@ import { inventory as store } from '../lib/store';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import ConfirmModal from '../components/ConfirmModal';
+import AlertModal from '../components/AlertModal';
 
 const CATEGORIES = ['Materiales de restauración','Anestésicos','EPP','Instrumental','Radiología','Higiene','Otros'];
 const UNITS = ['unidades','cajas','jeringas','frascos','tubos','rollos','paquetes','kits'];
 const EMPTY = { name:'', category:'', quantity:0, unit:'unidades', min_stock:5, notes:'' };
 
 export default function Inventory() {
-  const [list,setList]       = useState([]);
-  const [search,setSearch]   = useState('');
-  const [modal,setModal]     = useState(false);
-  const [editing,setEditing] = useState(null);
-  const [form,setForm]       = useState(EMPTY);
+  const [list,setList]         = useState(() => store.getCached());
+  const [search,setSearch]     = useState('');
+  const [modal,setModal]       = useState(false);
+  const [editing,setEditing]   = useState(null);
+  const [form,setForm]         = useState(EMPTY);
   const [filterCat,setFilterCat] = useState('');
   const [confirmDel,setConfirmDel] = useState(null);
+  const [alert,setAlert]       = useState(null);
+  const [saving, setSaving]     = useState(false);
 
-  useEffect(()=>{setList(store.get());},[]);
-  const reload=()=>setList(store.get());
+  useEffect(() => {
+    store.get().then(setList);
+    return store.subscribe(setList);
+  }, []);
+
+  const reload=()=>store.get().then(setList);
 
   const filtered=list.filter(i=>{
     const s=search.toLowerCase();
@@ -29,12 +36,32 @@ export default function Inventory() {
   const lowStock=list.filter(i=>Number(i.quantity)<=Number(i.min_stock));
   const openNew=()=>{setForm(EMPTY);setEditing(null);setModal(true);};
   const openEdit=i=>{setForm(i);setEditing(i.id);setModal(true);};
-  const save=()=>{
-    if(!form.name)return alert('El nombre es requerido');
-    editing?store.update(editing,{...form,quantity:Number(form.quantity),min_stock:Number(form.min_stock)}):store.add({...form,quantity:Number(form.quantity),min_stock:Number(form.min_stock)});
-    reload();setModal(false);
+
+  const save=async ()=>{
+    if(!form.name){ setAlert('El nombre es requerido'); return; }
+    setSaving(true);
+    try {
+      const data = {...form, quantity: Number(form.quantity), min_stock: Number(form.min_stock)};
+      editing ? await store.update(editing, data) : await store.add(data);
+      await reload();
+      setModal(false);
+    } catch (err) {
+      setAlert('Error al guardar: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
-  const confirmDelete=()=>{store.remove(confirmDel);reload();setConfirmDel(null);};
+
+  const confirmDelete=async ()=>{
+    try {
+      await store.remove(confirmDel);
+      await reload();
+      setConfirmDel(null);
+    } catch (err) {
+      setAlert('Error al eliminar: ' + err.message);
+    }
+  };
+
   const tf=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
   const sf=(k,v)=>setForm(p=>({...p,[k]:v}));
 
@@ -46,9 +73,9 @@ export default function Inventory() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-8 pt-2">
       <div className="flex items-center justify-between mb-7">
-        <div><h1 className="text-2xl font-bold text-slate-800">Inventario</h1><p className="text-sm text-slate-400 mt-0.5">{list.length} artículos registrados</p></div>
+        <p className="text-sm text-slate-400 mt-0.5">{list.length} artículos registrados</p>
         <button onClick={openNew} className="btn-primary"><Plus size={16}/> Nuevo Artículo</button>
       </div>
 
@@ -104,11 +131,14 @@ export default function Inventory() {
           </div>
           <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
             <button onClick={()=>setModal(false)} className="btn-secondary">Cancelar</button>
-            <button onClick={save} className="btn-primary">{editing?'Guardar cambios':'Agregar artículo'}</button>
+            <button onClick={save} disabled={saving} className="btn-primary">
+              {saving ? 'Guardando...' : (editing ? 'Guardar cambios' : 'Agregar artículo')}
+            </button>
           </div>
         </Modal>
       )}
 
+      {alert && <AlertModal message={alert} onClose={() => setAlert(null)}/>}
       {confirmDel&&<ConfirmModal message="¿Eliminar este artículo del inventario? Esta acción no se puede deshacer." onConfirm={confirmDelete} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
