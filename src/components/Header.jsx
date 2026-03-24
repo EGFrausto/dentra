@@ -67,7 +67,7 @@ export default function Header({ user, title, subtitle }) {
             className="w-full bg-white border border-slate-200 rounded-2xl px-10 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50 transition-all shadow-sm"
           />
           {globalSearch && (
-            <button onClick={() => { setGlobalSearch(''); setShowResults(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <button onClick={() => { setGlobalSearch(''); setShowResults(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 tooltip-trigger tooltip-bottom" data-tip="Limpiar búsqueda">
               <X size={14}/>
             </button>
           )}

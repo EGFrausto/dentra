@@ -31,8 +31,12 @@ export default function Layout({ children, onLogout, user }) {
   const title = activeNavItem?.label || 'Dentra';
   const subtitle = location.pathname === '/' ? todayStr : '';
 
-  const clinicName = prof?.name || user?.user_metadata?.clinic_name || 'Cargando...';
-  const profName = prof?.doctor_name ? `${prof.doctor_prefix || ''} ${prof.doctor_name}`.trim() : null;
+  const clinicName = prof?.clinic?.name || prof?.name || user?.user_metadata?.clinic_name || 'Cargando...';
+  const profName = prof?.full_name
+    ? prof.full_name
+    : prof?.doctor_name
+      ? `${prof.doctor_prefix || ''} ${prof.doctor_name}`.trim()
+      : null;
   const metaName = user?.user_metadata?.full_name ? `${user.user_metadata.prefix || ''} ${user.user_metadata.full_name}`.trim() : null;
   const docName = profName || metaName || user?.email || 'Doctor';
 
@@ -49,7 +53,12 @@ export default function Layout({ children, onLogout, user }) {
           )}
         </div>
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, label }) => (
+          {navItems.filter(item => {
+            if (prof?.role === 'reception' || prof?.role === 'recepcion') {
+              return ['/', '/pacientes', '/citas'].includes(item.to);
+            }
+            return true;
+          }).map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} end={to === '/'}
               className={({ isActive }) =>
                 `flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-all ${

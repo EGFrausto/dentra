@@ -19,12 +19,24 @@ function makeStore(table) {
     // get returns cache immediately, and triggers background fetch
     // if a callback is provided, it will be called when background fetch finishes
     get: async (onUpdate) => {
-      // 1. If we have a callback, add it for this specific call (one-time or persistent depending on usage)
-      // Actually, it's better to just return the cache and let the background fetch notify via the global listener system.
-      
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: profile } = await supabase.from('profiles').select('clinic_id').eq('user_id', session?.user?.id).maybeSingle();
+      let clinicId = profile?.clinic_id;
+
+      if (!clinicId && session?.user?.id) {
+        const { data: owned } = await supabase.from('clinics').select('id').eq('user_id', session?.user?.id).maybeSingle();
+        clinicId = owned?.id;
+      }
+
       if (storeCache[table]) {
         // Silent background update
-        supabase.from(table).select('*').then(({ data }) => {
+        let query = supabase.from(table).select('*');
+        if (table !== 'profiles') {
+          if (clinicId) query = query.eq('clinic_id', clinicId);
+          else query = query.eq('user_id', session?.user?.id);
+        }
+
+        query.then(({ data }) => {
           if (data) {
             storeCache[table] = data;
             notify(table);
@@ -33,7 +45,13 @@ function makeStore(table) {
         return storeCache[table];
       }
       
-      const { data, error } = await supabase.from(table).select('*');
+      let query = supabase.from(table).select('*');
+      if (table !== 'profiles') {
+        if (clinicId) query = query.eq('clinic_id', clinicId);
+        else query = query.eq('user_id', session?.user?.id);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       storeCache[table] = data || [];
       notify(table);
@@ -52,7 +70,18 @@ function makeStore(table) {
     
     add: async (item) => {
       const { data: { session } } = await supabase.auth.getSession();
-      const { data, error } = await supabase.from(table).insert({ ...item, user_id: session?.user?.id }).select().single();
+      const { data: profile } = await supabase.from('profiles').select('clinic_id').eq('user_id', session?.user?.id).maybeSingle();
+      let clinicId = profile?.clinic_id;
+
+      if (!clinicId && session?.user?.id) {
+        const { data: owned } = await supabase.from('clinics').select('id').eq('user_id', session?.user?.id).maybeSingle();
+        clinicId = owned?.id;
+      }
+      
+      const newItem = { ...item, user_id: session?.user?.id };
+      if (clinicId) newItem.clinic_id = clinicId;
+
+      const { data, error } = await supabase.from(table).insert(newItem).select().single();
       if (error) throw error;
       if (storeCache[table]) {
         storeCache[table] = [data, ...storeCache[table]];
@@ -91,6 +120,7 @@ export const xrays        = makeStore('xrays');
 export const consents     = makeStore('consents');
 export const plans        = makeStore('plans');
 export const aptNotes     = makeStore('apt_notes');
+export const profilesShared = makeStore('profiles');
 
 // Special helper for the clinic/user profile (single record per user)
 let profileCache = null;
@@ -98,27 +128,38 @@ const profListeners = new Set();
 
 export const profile = {
   get: async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
     if (profileCache) {
        // background update
-       supabase.auth.getUser().then(({ data: { user } }) => {
-         if (user) {
-            supabase.from('clinics').select('*').eq('user_id', user.id).maybeSingle().then(({ data }) => {
-              if (data) {
-                profileCache = data;
-                profListeners.forEach(fn => fn(data));
-              }
-            });
+       supabase.from('profiles').select('*, clinics(*)').eq('user_id', user.id).limit(1).maybeSingle().then(({ data }) => {
+         if (data) {
+            const { clinics: clinicData, ...profileFields } = data;
+            const merged = { ...clinicData, ...profileFields, clinic: clinicData };
+            profileCache = merged;
+            profListeners.forEach(fn => fn(merged));
          }
        });
        return profileCache;
     }
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-    const { data, error } = await supabase.from('clinics').select('*').eq('user_id', user?.id).maybeSingle();
+
+    const { data, error } = await supabase.from('profiles').select('*, clinics(*)').eq('user_id', user.id).limit(1).maybeSingle();
     if (error) console.error('Error fetching profile:', error);
-    profileCache = data;
-    profListeners.forEach(fn => fn(data));
-    return data;
+    
+    if (data) {
+      const { clinics: clinicData, ...profileFields } = data;
+      const merged = { ...clinicData, ...profileFields, clinic: clinicData };
+      profileCache = merged;
+      profListeners.forEach(fn => fn(merged));
+      return merged;
+    }
+    
+    // Fallback to old clinics logic if profile doesn't exist yet
+    const { data: oldClinic } = await supabase.from('clinics').select('*').eq('user_id', user.id).maybeSingle();
+    const merged = { ...oldClinic, role: 'admin' };
+    profileCache = merged;
+    return merged;
   },
   getCached: () => profileCache,
   subscribe: (fn) => {

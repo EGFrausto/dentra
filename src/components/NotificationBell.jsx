@@ -210,7 +210,8 @@ export default function NotificationBell({ user }) {
     <div className="relative" ref={bellRef}>
       <button 
         onClick={() => { setIsOpen(!isOpen); if (!isOpen) generateBriefing(); }}
-        className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all ${isOpen ? 'bg-slate-800 text-white shadow-lg shadow-slate-200' : 'bg-white text-slate-400 hover:text-slate-600 border border-slate-200 shadow-sm'}`}
+        className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all tooltip-trigger tooltip-bottom ${isOpen ? 'bg-slate-800 text-white shadow-lg shadow-slate-200' : 'bg-white text-slate-400 hover:text-slate-600 border border-slate-200 shadow-sm'}`}
+        data-tip="Notificaciones"
       >
         <Bell size={18} />
         {apptCount > 0 && !isOpen && (
@@ -248,7 +249,8 @@ export default function NotificationBell({ user }) {
                   >
                     <button 
                       onClick={() => dismiss(`apt_${nextAppointment.id}_${nextAppointment.time}_${nextAppointment.treatment}`)}
-                      className="absolute top-3 right-3 p-1 text-slate-300 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-all z-10"
+                      className="absolute top-3 right-3 p-1 text-slate-300 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-all z-10 tooltip-trigger tooltip-bottom"
+                      data-tip="Ocultar"
                     >
                       <X size={14} />
                     </button>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Edit2, Trash2, Bell, BellOff, Calendar, StickyNote, MessageSquare, DollarSign, CheckCircle } from 'lucide-react';
-import { patients as pStore, appointments as aStore, aptNotes as nStore } from '../lib/store';
+import { ChevronLeft, ChevronRight, Plus, Edit2, Trash2, Bell, BellOff, Calendar, StickyNote, MessageSquare, DollarSign, CheckCircle, Check } from 'lucide-react';
+import { patients as pStore, appointments as aStore, aptNotes as nStore, profilesShared as profsStore } from '../lib/store';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import DatePicker from '../components/DatePicker';
@@ -20,7 +20,7 @@ const STATUS_COLORS = {
   'Cancelada':  { badge:'badge badge-red',    card:'border-l-4 border-red-500' },
 };
 const CAL_COLORS = { 'Programada':'bg-indigo-500','Confirmada':'bg-teal-500','Completada':'bg-emerald-500','Cancelada':'bg-red-500' };
-const EMPTY = { patient_id:'', date:new Date().toISOString().split('T')[0], time:'09:00', duration:30, status:'Programada', treatment:'', amount: 0, notes:'', reminder_sent:false };
+const EMPTY = { patient_id:'', date:new Date().toISOString().split('T')[0], time:'09:00', duration:30, status:'Programada', treatment:'', amount: 0, notes:'', reminder_sent:false, doctor_name: '' };
 const NOTE_TYPES = ['Instrucción','Recordatorio','Seguimiento','Alerta'];
 const NOTE_BADGE = { 'Instrucción':'badge badge-indigo','Recordatorio':'badge badge-amber','Seguimiento':'badge badge-teal','Alerta':'badge badge-red' };
 
@@ -28,6 +28,9 @@ export default function Appointments() {
   const [pts, setPts]     = useState(() => pStore.getCached());
   const [apts, setApts]   = useState(() => aStore.getCached());
   const [notes, setNotes] = useState(() => nStore.getCached());
+  const [profs, setProfs] = useState(() => profsStore.getCached());
+  const [pCache, setPCache] = useState(() => pStore.getCached());
+  const [onlyMine, setOnlyMine] = useState(false);
   const [cur, setCur]     = useState(new Date());
   const [sel, setSel]     = useState(new Date().toISOString().split('T')[0]);
   const [tab, setTab]     = useState('citas');
@@ -46,11 +49,15 @@ export default function Appointments() {
     pStore.get().then(setPts);
     aStore.get().then(setApts);
     nStore.get().then(setNotes);
+    profsStore.get().then(setProfs);
+    pStore.get().then(setPCache);
 
     const unsubs = [
       pStore.subscribe(setPts),
       aStore.subscribe(setApts),
-      nStore.subscribe(setNotes)
+      nStore.subscribe(setNotes),
+      profsStore.subscribe(setProfs),
+      pStore.subscribe(setPCache)
     ];
     return () => unsubs.forEach(fn => fn());
   }, []);
@@ -63,7 +70,13 @@ export default function Appointments() {
   const daysInMo = new Date(yr,mo+1,0).getDate();
   const today = new Date().toISOString().split('T')[0];
 
-  const byDate  = d => apts.filter(a=>a.date===d).sort((a,b)=>a.time.localeCompare(b.time));
+  const byDate  = d => {
+    let list = apts.filter(a=>a.date===d);
+    if (onlyMine && pCache?.full_name) {
+      list = list.filter(a => a.doctor_name === pCache.full_name);
+    }
+    return list.sort((a,b)=>a.time.localeCompare(b.time));
+  };
   const selApts = byDate(sel);
   const getName = id => pts.find(p=>p.id===id)?.name||'Desconocido';
 
@@ -165,8 +178,8 @@ export default function Appointments() {
                 <div className="flex items-center justify-between mb-4">
                   <p className="font-bold text-slate-700">{MONTHS[mo]} {yr}</p>
                   <div className="flex gap-1">
-                    <button onClick={()=>setCur(new Date(yr,mo-1,1))} className="icon-btn p-1.5"><ChevronLeft size={16}/></button>
-                    <button onClick={()=>setCur(new Date(yr,mo+1,1))} className="icon-btn p-1.5"><ChevronRight size={16}/></button>
+                    <button onClick={()=>setCur(new Date(yr,mo-1,1))} className="icon-btn p-1.5 tooltip-trigger" data-tip="Mes anterior"><ChevronLeft size={16}/></button>
+                    <button onClick={()=>setCur(new Date(yr,mo+1,1))} className="icon-btn p-1.5 tooltip-trigger" data-tip="Mes siguiente"><ChevronRight size={16}/></button>
                   </div>
                 </div>
                 <div className="grid grid-cols-7 gap-1 text-center mb-2">
@@ -210,7 +223,25 @@ export default function Appointments() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold text-slate-800 capitalize">{selDateLabel()}</h2>
-                  <p className="text-sm text-slate-400 mt-1">{selApts.length} citas programadas</p>
+                  <div className="flex items-center gap-4 mt-1">
+                    <p className="text-sm text-slate-400">{selApts.length} citas programadas</p>
+                    {pCache?.role !== 'reception' && (
+                      <label className="flex items-center gap-2 cursor-pointer group select-none">
+                        <div className="relative flex items-center justify-center">
+                          <input 
+                            type="checkbox" 
+                            checked={onlyMine} 
+                            onChange={e => setOnlyMine(e.target.checked)} 
+                            className="sr-only peer"
+                          />
+                          <div className={`w-4 h-4 rounded-md border-2 transition-all flex items-center justify-center ${onlyMine ? 'bg-slate-900 border-slate-900' : 'border-slate-200 bg-white group-hover:border-slate-300'}`}>
+                            {onlyMine && <Check size={12} className="text-white stroke-[4px]" />}
+                          </div>
+                        </div>
+                        <span className={`text-[11px] font-bold transition-colors ${onlyMine ? 'text-slate-900' : 'text-slate-400 group-hover:text-slate-600'}`}>Solo mis citas</span>
+                      </label>
+                    )}
+                  </div>
                 </div>
                 <button onClick={openNew} className="btn-primary shadow-lg shadow-indigo-100"><Plus size={18}/> Nueva Cita</button>
               </div>
@@ -242,6 +273,7 @@ export default function Appointments() {
                           <div className="flex flex-col items-end">
                             <p className="text-sm font-bold text-slate-700">{a.time.slice(0,5)}</p>
                             <p className="text-[11px] text-slate-400 font-medium">{a.duration} min</p>
+                            {a.doctor_name && <p className="text-[10px] text-indigo-500 font-bold mt-1 uppercase tracking-tight">{a.doctor_name}</p>}
                           </div>
                         </div>
                         <div className="flex items-center justify-between pt-4 border-t border-slate-50">
@@ -256,8 +288,8 @@ export default function Appointments() {
                             )}
                           </div>
                           <div className="flex items-center gap-1">
-                             <button onClick={()=>openEdit(a)} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"><Edit2 size={14}/></button>
-                             <button onClick={()=>setConfirmDel(a.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
+                             <button onClick={()=>openEdit(a)} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors tooltip-trigger" data-tip="Editar"><Edit2 size={14}/></button>
+                             <button onClick={()=>setConfirmDel(a.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors tooltip-trigger" data-tip="Eliminar"><Trash2 size={14}/></button>
                           </div>
                         </div>
                       </div>
@@ -296,7 +328,7 @@ export default function Appointments() {
                         <span>{n.date}</span>{apt&&<span>· {apt.date} {apt.time.slice(0,5)} - {apt.treatment}</span>}
                       </div>
                     </div>
-                    <button onClick={()=>setConfirmDelNote(n.id)} className="icon-btn-danger opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14}/></button>
+                    <button onClick={()=>setConfirmDelNote(n.id)} className="icon-btn-danger opacity-0 group-hover:opacity-100 transition-opacity tooltip-trigger" data-tip="Eliminar Nota"><Trash2 size={14}/></button>
                   </div>
                 );
               })}</div>
@@ -317,6 +349,15 @@ export default function Appointments() {
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Duración</label><Select value={form.duration} onChange={v=>sf('duration',v)} options={DURATIONS.map(d=>({value:d,label:`${d} min`}))}/></div>
               <div><label className="label">Estado</label><Select value={form.status} onChange={v=>sf('status',v)} options={STATUSES}/></div>
+            </div>
+            <div>
+              <label className="label">Doctor(a) que atiende</label>
+              <Select 
+                value={form.doctor_name || ''} 
+                onChange={v => sf('doctor_name', v)} 
+                placeholder="Asignar doctor..." 
+                options={profs.filter(p => p.role === 'admin' || p.role === 'doctor').map(p => ({ value: p.full_name, label: p.full_name }))} 
+              />
             </div>
             <div className="grid grid-cols-3 gap-3">
                <div className="col-span-2">

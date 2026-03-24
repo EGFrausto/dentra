@@ -65,6 +65,74 @@
   .skeleton {
     @apply bg-slate-200 animate-pulse rounded-lg;
   }
+
+  .tooltip-trigger {
+    position: relative !important;
+  }
+  .tooltip-trigger:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    @apply bg-slate-900/80 backdrop-blur-md text-white text-[11px] font-bold px-3 py-1.5 
+           rounded-xl whitespace-nowrap pointer-events-none shadow-xl border border-white/10;
+    z-index: 999999;
+    animation: tooltipFadeUp 0.12s cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
+  .tooltip-trigger:hover::before {
+    content: '';
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    @apply border-[6px] border-transparent border-t-slate-900/80 pointer-events-none;
+    z-index: 999999;
+    animation: tooltipFadeUp 0.12s cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
+
+  /* Bottom variant for elements at the top of the screen */
+  .tooltip-bottom:hover::after {
+    bottom: auto;
+    top: calc(100% + 10px);
+    animation: tooltipFadeDown 0.12s cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
+  .tooltip-bottom:hover::before {
+    bottom: auto;
+    top: calc(100% + 4px);
+    @apply border-t-transparent border-b-slate-900/80;
+    animation: tooltipFadeDown 0.12s cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
+
+  /* Left variant for actions on the right side of rows */
+  .tooltip-left:hover::after {
+    bottom: 50%;
+    right: calc(100% + 10px);
+    left: auto;
+    transform: translateY(50%);
+    animation: tooltipFadeLeft 0.12s cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
+  .tooltip-left:hover::before {
+    bottom: 50%;
+    right: calc(100% + 4px);
+    left: auto;
+    transform: translateY(50%);
+    @apply border-t-transparent border-l-slate-900/80;
+    animation: tooltipFadeLeft 0.12s cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
+
+  @keyframes tooltipFadeUp {
+    from { opacity: 0; transform: translate(-50%, 4px) scale(0.95); }
+    to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  }
+  @keyframes tooltipFadeDown {
+    from { opacity: 0; transform: translate(-50%, -4px) scale(0.95); }
+    to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  }
+  @keyframes tooltipFadeLeft {
+    from { opacity: 0; transform: translate(4px, 50%) scale(0.95); }
+    to { opacity: 1; transform: translate(0, 50%) scale(1); }
+  }
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Edit2, Trash2, User, Phone, Mail, MessageCircle, FileText, Calendar, Image, Gift, Download } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, User, Phone, Mail, MessageCircle, FileText, Calendar, Image, Gift, Download, DollarSign, CheckCircle, Receipt } from 'lucide-react';
 import { patients as store, appointments as aStore, records as rStore, xrays as xStore } from '../lib/store';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
@@ -136,6 +136,43 @@ function PatientProfile({ patient, onClose, onEdit }) {
           </div>
         )}
 
+        {/* Billing History */}
+        {apts.some(a => a.amount > 0) && (
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Historial de Pagos</p>
+            <div className="space-y-2">
+              {apts.filter(a => a.amount > 0).map(a => {
+                const local = JSON.parse(localStorage.getItem('dentra_local_status') || '{}');
+                const status = a.payment_status || local[a.id] || 'Pendiente';
+
+                return (
+                  <div key={a.id} className="flex items-center justify-between border border-slate-100 rounded-2xl p-4 bg-white shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${status === 'Pagado' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                        <DollarSign size={18}/>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-700">{a.treatment || 'Tratamiento'}</p>
+                        <p className="text-xs text-slate-400">{a.date}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-black text-slate-800 tracking-tight">{(a.amount || 0).toLocaleString('es-MX', {style:'currency', currency:'MXN'})}</p>
+                      <div className="flex items-center gap-1 justify-end mt-1">
+                        {status === 'Pagado' ? (
+                          <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1 uppercase tracking-wider"><CheckCircle size={10}/> Pagado</span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Pendiente</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Recent records */}
         {records.length > 0 && (
           <div>
@@ -253,11 +290,11 @@ export default function Patients() {
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre o teléfono..." className="input-field pl-10"/>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card">
         {filtered.length === 0
           ? <div className="py-16 text-center"><User size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-sm text-slate-400">No se encontraron pacientes</p></div>
-          : filtered.map(p => (
-            <div key={p.id} className="flex items-center justify-between px-5 py-4 border-b border-slate-50 last:border-0 hover:bg-slate-50/80 transition-colors group cursor-pointer" onClick={() => setProfile(p)}>
+          : filtered.map((p, idx ) => (
+            <div key={p.id} className={`flex items-center justify-between px-5 py-4 border-b border-slate-50 last:border-0 hover:bg-slate-50/80 transition-colors group cursor-pointer ${idx===0?'rounded-t-2xl':''} ${idx===filtered.length-1?'rounded-b-2xl':''}`} onClick={() => setProfile(p)}>
               <div className="flex items-center gap-3">
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isBirthdayToday(p) ? 'bg-pink-100' : 'bg-indigo-100'}`}>
                   {isBirthdayToday(p) ? <Gift size={16} className="text-pink-500"/> : <User size={16} className="text-indigo-500"/>}
@@ -274,8 +311,8 @@ export default function Patients() {
                 </div>
               </div>
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e=>e.stopPropagation()}>
-                <button onClick={() => openEdit(p)} className="icon-btn"><Edit2 size={15}/></button>
-                <button onClick={() => setConfirmDel(p.id)} className="icon-btn-danger"><Trash2 size={15}/></button>
+                <button onClick={(e)=>{e.stopPropagation(); setEditing(p);}} className="icon-btn tooltip-trigger tooltip-left" data-tip="Editar"><Edit2 size={14}/></button>
+                <button onClick={(e)=>{e.stopPropagation(); setConfirmDel(p.id);}} className="icon-btn-danger tooltip-trigger tooltip-left" data-tip="Eliminar"><Trash2 size={14}/></button>
               </div>
             </div>
           ))

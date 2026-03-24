@@ -27,11 +27,13 @@ const PendingActivation = ({ onLogout }) => {
           </motion.div>
 
           <h1 className="text-3xl font-extrabold text-slate-900 mb-4 tracking-tight">
-            Activación Pendiente
+            Acceso en Proceso
           </h1>
           
           <p className="text-slate-500 leading-relaxed mb-10">
-            Tu cuenta está siendo procesada. El administrador activará tu acceso una vez confirmado el registro.
+            {localStorage.getItem('dentra_role') === 'admin' 
+              ? 'Tu clínica está en proceso de activación. El equipo de Dentra validará tu registro a la brevedad.' 
+              : 'Tu perfil está pendiente de aprobación. Recibirás acceso completo una vez que sea activado.'}
           </p>
 
           <div className="w-full space-y-4 mb-10">
@@ -39,11 +41,19 @@ const PendingActivation = ({ onLogout }) => {
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-200/50">
                 <ShieldCheck size={20} className="text-slate-600" />
               </div>
-              <div className="text-left">
+              <div className="text-left flex-1">
                 <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400">Estado</p>
-                <p className="text-sm font-semibold text-slate-700">Validando suscripción</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-slate-700">Validando suscripción</p>
+                  <div className="flex gap-0.5">
+                    <div className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <div className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <div className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" />
+                  </div>
+                </div>
               </div>
             </div>
+            <p className="text-[10px] text-slate-400 text-center font-medium italic">Esta página se actualizará automáticamente una vez activada.</p>
           </div>
 
           <div className="grid grid-cols-1 w-full gap-3">

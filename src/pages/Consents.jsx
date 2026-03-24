@@ -61,6 +61,7 @@ function exportConsentPDF(c, patientName, prof) {
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>
     *{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:40px;line-height:1.6}
+    @media print { @page { margin: 0; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     .hdr{display:flex;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:24px}
     .brand{font-size:20px;font-weight:800;color:#1e293b}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}
     .title{font-size:16px;font-weight:700;text-align:center;margin-bottom:20px;color:#1e293b}
@@ -70,14 +71,14 @@ function exportConsentPDF(c, patientName, prof) {
     .sig-line{border-top:1px solid #1e293b;width:200px;padding-top:4px;font-size:11px;color:#94a3b8}
     .footer{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}
   </style></head><body>
-    <div class="hdr"><div class="brand">${clinicName}<span>Sistema de Gestión Dental</span></div><div style="text-align:right;font-size:11px;color:#64748b">${c.date}<br/>Consentimiento #${c.id}</div></div>
+    <div class="hdr"><div class="brand">${prof?.logo_base64 ? `<img src="${prof.logo_base64}" style="max-height:48px;max-width:160px;object-fit:contain;display:block;margin-bottom:4px"/>` : clinicName}<span>${prof?.address || 'Consulta Dental'}</span></div><div style="text-align:right;font-size:11px;color:#64748b">${c.date}<br/>Consentimiento #${c.id}</div></div>
     <div class="title">CONSENTIMIENTO INFORMADO<br/>${c.type}</div>
     <div class="content">${c.content}</div>
     <div class="sig">
       <div class="sig-box"><div class="sig-line">Firma del Médico · ${docName}</div></div>
       <div class="sig-box">${c.signature?`<img src="${c.signature}"/>`:'<div style="height:70px"></div>'}<div class="sig-line">Firma del Paciente · ${patientName}</div></div>
     </div>
-    <div class="footer">Generado por Dentra · Powered by Atlara · ${new Date().toLocaleDateString('es-MX')}</div>
+    <div class="footer">${clinicName}${prof?.address ? ` · ${prof.address}` : ''}${prof?.phone ? ` · Tel: ${prof.phone}` : ''} · ${new Date().toLocaleDateString('es-MX')}</div>
   </body></html>`;
   const win = window.open('', '_blank');
   win.document.write(html);
@@ -164,11 +165,11 @@ export default function Consents() {
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por paciente o procedimiento..." className="input-field pl-10"/>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card">
         {list.length === 0
           ? <div className="py-16 text-center"><FileCheck size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-sm text-slate-400">No hay consentimientos registrados</p></div>
-          : filtered.map(c => (
-            <div key={c.id} className="table-row group">
+          : filtered.map((c, idx) => (
+            <div key={c.id} className={`table-row group ${idx===0?'rounded-t-2xl':''} ${idx===filtered.length-1?'rounded-b-2xl':''}`}>
               <div className="flex items-center gap-3 flex-1">
                 <div className="w-9 h-9 bg-slate-100 rounded-xl flex items-center justify-center flex-shrink-0">
                   <FileCheck size={16} className="text-slate-600"/>
@@ -183,8 +184,8 @@ export default function Consents() {
                 </div>
               </div>
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => exportConsentPDF(c, getName(c.patient_id), prof)} className="icon-btn" title="Exportar PDF"><Download size={14}/></button>
-                <button onClick={() => setConfirmDel(c.id)} className="icon-btn-danger"><Trash2 size={14}/></button>
+                <button onClick={() => exportConsentPDF(c, getName(c.patient_id), prof)} className="icon-btn tooltip-trigger tooltip-left" data-tip="Exportar PDF"><Download size={14}/></button>
+                <button onClick={() => setConfirmDel(c.id)} className="icon-btn-danger tooltip-trigger tooltip-left" data-tip="Eliminar"><Trash2 size={14}/></button>
               </div>
             </div>
           ))

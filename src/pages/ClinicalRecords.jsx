@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Edit2, Trash2, FileText, PenLine, Trash, Download, StickyNote, FileCheck, ClipboardList } from 'lucide-react';
-import { patients as pStore, records as rStore, consents as cStore, plans as plStore, profile as profStore } from '../lib/store';
+import { patients as pStore, records as rStore, consents as cStore, plans as plStore, profile as profStore, profilesShared as profsStore } from '../lib/store';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import ConfirmModal from '../components/ConfirmModal';
@@ -17,7 +17,7 @@ const STATE_STYLE = {
   Extraído:{ btn:'bg-red-100 text-red-600 border-red-300',        tooth:'border-red-400 bg-red-50 text-red-600 line-through' },
   Tratado: { btn:'bg-blue-100 text-blue-700 border-blue-300',     tooth:'border-blue-400 bg-blue-50 text-blue-700' },
 };
-const EMPTY_RECORD = { patient_id:'', date:new Date().toISOString().split('T')[0], teeth:'', reason:'', diagnosis:'', treatment:'', medications:'', next_steps:'', notes:'', odontogram:{}, signature:'' };
+const EMPTY_RECORD = { patient_id:'', date:new Date().toISOString().split('T')[0], teeth:'', reason:'', diagnosis:'', treatment:'', medications:'', next_steps:'', notes:'', odontogram:{}, signature:'', doctor_name: '' };
 const CONSENT_TYPES = ['Consulta general','Extracción dental','Endodoncia','Implante dental','Ortodoncia','Blanqueamiento','Cirugía oral','Anestesia general'];
 const TREATMENTS_PLAN = ['Limpieza dental','Consulta general','Endodoncia (conducto)','Extracción','Ortodoncia','Blanqueamiento','Implante dental','Corona','Puente','Cirugía oral','Radiografía','Otro'];
 const PRIORITIES = ['Alta','Media','Baja'];
@@ -54,17 +54,68 @@ function SignatureCanvas({ value, onChange }) {
 
 // ─── Export PDF Historia ──────────────────────────────────────
 function exportPDF(r, patientName, prof) {
-  const TOOTH_STYLE = { Cariado:'border-color:#f59e0b;background:#fffbeb;color:#b45309;', Extraído:'border-color:#ef4444;background:#fef2f2;color:#dc2626;text-decoration:line-through;', Tratado:'border-color:#3b82f6;background:#eff6ff;color:#1d4ed8;' };
-  const tooth = t => `<div style="width:26px;height:26px;border:2px solid #e2e8f0;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;${TOOTH_STYLE[r.odontogram?.[t]]||''}">${t}</div>`;
+  const TOOTH_STYLE = { 
+    Sano:     { fill: '#f0fdf4',     stroke: '#22c55e' },
+    Cariado:  { fill: '#fee2e2',     stroke: '#ef4444' },
+    Tratado:  { fill: '#eff6ff',     stroke: '#3b82f6' },
+    Extraído: { fill: 'transparent', stroke: '#ef4444' },
+    Corona:   { fill: '#fffbeb',     stroke: '#f59e0b' }
+  };
   
-  const docName = prof?.doctor_name ? `${prof.doctor_prefix} ${prof.doctor_name}` : 'Dentra';
+  const getPoly = (points, status) => {
+    const isSpecial = status === 'Extraído' || status === 'Corona';
+    const fill = !status ? 'transparent' : (isSpecial ? 'transparent' : TOOTH_STYLE[status].fill);
+    const stroke = !status ? '#cbd5e1' : (TOOTH_STYLE[status]?.stroke || '#cbd5e1');
+    const sw = !status ? 0.8 : 1.2;
+    return `<polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  };
+
+  const renderToothSVG = (t, o = {}) => {
+    const faceF = o['F'];
+    const isExtracted = faceF === 'Extraído';
+    // If extracted, we draw the cross over the whole tooth box
+    const extractedLines = isExtracted ? `<line x1="10" y1="10" x2="40" y2="40" stroke="#ef4444" stroke-width="2" stroke-linecap="round"/><line x1="40" y1="10" x2="10" y2="40" stroke="#ef4444" stroke-width="2" stroke-linecap="round"/>` : '';
+    
+    // Draw the 5 faces
+    const svg = `
+      <svg width="22" height="22" viewBox="0 0 50 50" style="display:block;margin:0 auto">
+        ${getPoly("5,5 45,5 35,15 15,15", o['T'])}
+        ${getPoly("5,45 45,45 35,35 15,35", o['B'])}
+        ${getPoly("5,5 15,15 15,35 5,45", o['L'])}
+        ${getPoly("45,5 35,15 35,35 45,45", o['R'])}
+        ${getPoly("15,15 35,15 35,35 15,35", o['C'])}
+        ${extractedLines}
+      </svg>
+    `;
+
+    // Wrap the number and the SVG diagram in a box
+    let wrapperStyle = `width:28px; display:inline-flex; flex-direction:column; align-items:center; gap:3px; margin:0 1px;`;
+    if (faceF === 'Corona') {
+      wrapperStyle += ` border-bottom: 3px solid #f59e0b; padding-bottom: 2px;`;
+    }
+
+    return `
+      <div style="${wrapperStyle}">
+        <div style="font-size:9px; font-weight:700; color:#475569;">${t}</div>
+        ${svg}
+      </div>
+    `;
+  };
+
+  const toothObj = t => renderToothSVG(t, r.odontogram?.[t] || {});
+  
+  const docName = r.doctor_name || (prof?.doctor_name ? `${prof.doctor_prefix} ${prof.doctor_name}` : 'Dentra');
   const clinicName = prof?.name || 'Sistema de Gestión Dental';
   const address = prof?.show_address_in_pdfs ? prof?.address : '';
   const phone = prof?.show_phone_in_pdfs ? prof?.phone : '';
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:36px}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:20px}.brand{font-size:20px;font-weight:800;color:#1e293b}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}.sec{font-size:12px;font-weight:700;color:#1e293b;margin:16px 0 8px;border-left:3px solid #334155;padding-left:7px}.box{background:#f8fafc;border-radius:7px;padding:10px;margin-bottom:8px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}.lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.4px;display:block;margin-bottom:3px}.footer{margin-top:28px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}.teeth{display:flex;gap:3px;flex-wrap:wrap;justify-content:center}</style></head><body>
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>@media print { @page { margin: 0; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:36px}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:20px}.brand{font-size:20px;font-weight:800;color:#1e293b}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}.sec{font-size:12px;font-weight:700;color:#1e293b;margin:16px 0 8px;border-left:3px solid #334155;padding-left:7px}.box{background:#f8fafc;border-radius:7px;padding:10px;margin-bottom:8px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}.lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.4px;display:block;margin-bottom:3px}.footer{margin-top:28px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}.teeth{display:flex;gap:3px;flex-wrap:wrap;justify-content:center}</style></head><body>
     <div class="hdr">
-      <div class="brand">${clinicName}<span>${docName} ${prof?.specialty ? `· ${prof.specialty}` : ''}</span></div>
+      <div class="brand">
+        ${prof?.logo_base64 ? `<img src="${prof.logo_base64}" style="max-height:48px;max-width:160px;object-fit:contain;display:block;margin-bottom:4px"/>` : ''}
+        ${clinicName}
+        <span>${docName} ${prof?.specialty ? `· ${prof.specialty}` : ''}</span>
+      </div>
       <div style="text-align:right">
         <div style="font-size:16px;font-weight:700">Historia Clínica</div>
         <div style="color:#64748b;font-size:10px;margin-top:2px">
@@ -81,15 +132,18 @@ function exportPDF(r, patientName, prof) {
     ${r.treatment?`<div class="sec">Tratamiento Realizado</div><div class="box">${r.treatment}</div>`:''}
     ${(r.medications||r.next_steps)?`<div class="grid2">${r.medications?`<div class="box"><span class="lbl">Medicamentos</span>${r.medications}</div>`:''} ${r.next_steps?`<div class="box"><span class="lbl">Próximos pasos</span>${r.next_steps}</div>`:''}</div>`:''}
     ${r.notes?`<div class="sec">Notas Clínicas</div><div class="box">${r.notes}</div>`:''}
-    ${Object.keys(r.odontogram||{}).length>0?`<div class="sec">Odontograma</div><div class="box"><div class="teeth">${UPPER.map(tooth).join('')}</div><div style="text-align:center;font-size:9px;color:#94a3b8;padding:4px 0;border-top:1px dashed #e2e8f0;border-bottom:1px dashed #e2e8f0;margin:4px 0">Superior / Inferior</div><div class="teeth">${LOWER.map(tooth).join('')}</div></div>`:''}
+    ${Object.keys(r.odontogram||{}).length>0?`<div class="sec">Odontograma</div><div class="box"><div class="teeth">${UPPER.map(toothObj).join('')}</div><div style="text-align:center;font-size:9px;color:#94a3b8;padding:8px 0;border-top:1px dashed #e2e8f0;border-bottom:1px dashed #e2e8f0;margin:8px 0">Superior / Inferior</div><div class="teeth">${LOWER.map(toothObj).join('')}</div></div>`:''}
     ${r.signature?`<div class="sec">Firma del Paciente</div><div class="box" style="text-align:center"><img src="${r.signature}" style="max-height:80px"/></div>`:''}
-    <div class="footer">${prof?.license ? `Cédula Profesional: ${prof.license} · ` : ''}Generado por Dentra · ${new Date().toLocaleDateString('es-MX')}</div>
+    <div class="footer">${prof?.license ? `Cédula Profesional: ${prof.license} · ` : ''}${clinicName}${prof?.address ? ` · ${prof.address}` : ''} · ${new Date().toLocaleDateString('es-MX')}</div>
   </body></html>`;
-  const win = window.open('', '_blank'); win.document.write(html); win.document.close(); win.onload = () => win.print();
+  const win = window.open('', '_blank'); 
+  win.document.write(html); 
+  win.document.close(); 
+  setTimeout(() => { if (!win.closed) win.print(); }, 500);
 }
 
 // ─── Tab: Historias ───────────────────────────────────────────
-function TabHistorias({ pts, prof }) {
+function TabHistorias({ pts, prof, profs }) {
   const [list, setList]           = useState(() => rStore.getCached());
   const [search, setSearch]       = useState('');
   const [modal, setModal]         = useState(false);
@@ -174,11 +228,11 @@ function TabHistorias({ pts, prof }) {
         <button onClick={openNew} className="btn-primary flex-shrink-0"><Plus size={16}/> Nueva Historia</button>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card">
         {filtered.length===0
           ?<div className="py-16 text-center"><FileText size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-sm text-slate-400">No hay historias clínicas registradas</p></div>
-          :filtered.map(r=>(
-            <div key={r.id} className="flex items-center justify-between p-3 px-5 bg-white hover:bg-slate-50 transition-all group border-b border-slate-50 last:border-0 relative">
+          :filtered.map((r, idx)=>(
+            <div key={r.id} className={`flex items-center justify-between p-3 px-5 bg-white hover:bg-slate-50 transition-all group border-b border-slate-50 last:border-0 relative ${idx===0?'rounded-t-xl':''} ${idx===filtered.length-1?'rounded-b-xl':''}`}>
               <div className="flex-1 overflow-hidden">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-bold text-slate-700 truncate">{getName(r.patient_id)}</p>
@@ -188,14 +242,14 @@ function TabHistorias({ pts, prof }) {
                   </div>
                 </div>
                 <div className="flex gap-3 mt-0.5 text-xs text-slate-400">
-                  <span className="font-medium">{r.date}</span>{r.diagnosis&&<span className="truncate">· {r.diagnosis}</span>}{r.treatment&&<span className="truncate">· {r.treatment}</span>}
+                  <span className="font-medium">{r.date}</span>{r.doctor_name && <span className="text-indigo-400 font-bold">· {r.doctor_name}</span>}{r.diagnosis&&<span className="truncate">· {r.diagnosis}</span>}{r.treatment&&<span className="truncate">· {r.treatment}</span>}
                 </div>
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
-                <button onClick={()=>openNote(r)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all" title="Nota rápida"><StickyNote size={15}/></button>
-                <button onClick={()=>exportPDF(r,getName(r.patient_id), prof)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Exportar PDF"><Download size={15}/></button>
-                <button onClick={()=>openEdit(r)} className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-all"><Edit2 size={15}/></button>
-                <button onClick={()=>setConfirmDel(r.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={15}/></button>
+                <button onClick={()=>openNote(r)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all tooltip-trigger tooltip-left" data-tip="Nota rápida"><StickyNote size={15}/></button>
+                <button onClick={()=>exportPDF(r,getName(r.patient_id), prof)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all tooltip-trigger tooltip-left" data-tip="Exportar PDF"><Download size={15}/></button>
+                <button onClick={()=>openEdit(r)} className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-all tooltip-trigger tooltip-left" data-tip="Editar"><Edit2 size={15}/></button>
+                <button onClick={()=>setConfirmDel(r.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all tooltip-trigger tooltip-left" data-tip="Eliminar"><Trash2 size={15}/></button>
               </div>
             </div>
           ))
@@ -211,7 +265,18 @@ function TabHistorias({ pts, prof }) {
               <div><label className="label">Paciente *</label><Select value={form.patient_id} onChange={v=>setForm(p=>({...p,patient_id:v}))} placeholder="Seleccionar paciente..." options={pts.map(p=>({value:p.id,label:p.name}))}/></div>
               <div><label className="label">Fecha de visita *</label><input type="date" value={form.date} onChange={tf('date')} className="input-field"/></div>
             </div>
-            <div><label className="label">Pieza(s) dental(es)</label><input value={form.teeth} onChange={tf('teeth')} placeholder="Ej: 11, 21, 22" className="input-field"/></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Pieza(s) dental(es)</label><input value={form.teeth} onChange={tf('teeth')} placeholder="Ej: 11, 21, 22" className="input-field"/></div>
+              <div>
+                <label className="label">Doctor(a) que atiende</label>
+                <Select 
+                  value={form.doctor_name || ''} 
+                  onChange={v => setForm(p => ({ ...p, doctor_name: v }))} 
+                  placeholder="Asignar doctor..." 
+                  options={profs.filter(p => p.role === 'admin' || p.role === 'doctor').map(p => ({ value: p.full_name, label: p.full_name }))} 
+                />
+              </div>
+            </div>
             <div><label className="label">Motivo de consulta</label><textarea value={form.reason} onChange={tf('reason')} placeholder="¿Por qué consulta el paciente?" rows={2} className="input-field resize-none"/></div>
             <div><label className="label">Diagnóstico</label><textarea value={form.diagnosis} onChange={tf('diagnosis')} placeholder="Diagnóstico clínico" rows={2} className="input-field resize-none"/></div>
             <div><label className="label">Tratamiento realizado</label><textarea value={form.treatment} onChange={tf('treatment')} placeholder="Procedimiento realizado" rows={2} className="input-field resize-none"/></div>
@@ -306,9 +371,13 @@ function TabConsents({ pts, prof }) {
     const address = prof?.show_address_in_pdfs ? prof?.address : '';
     const phone = prof?.show_phone_in_pdfs ? prof?.phone : '';
 
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:40px;line-height:1.6}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:24px}.brand{font-size:20px;font-weight:800;color:#1e293b}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}.content{white-space:pre-wrap;line-height:1.8;color:#374151}.sig{margin-top:32px;display:flex;justify-content:flex-end}.sig-box{text-align:center}.sig-box img{max-height:70px;display:block;margin:0 auto 8px}.sig-line{border-top:1px solid #1e293b;width:200px;padding-top:4px;font-size:11px;color:#94a3b8}.footer{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}</style></head><body>
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>@media print { @page { margin: 0; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:40px;line-height:1.6}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:24px}.brand{font-size:20px;font-weight:800;color:#1e293b}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}.content{white-space:pre-wrap;line-height:1.8;color:#374151}.sig{margin-top:32px;display:flex;justify-content:flex-end}.sig-box{text-align:center}.sig-box img{max-height:70px;display:block;margin:0 auto 8px}.sig-line{border-top:1px solid #1e293b;width:200px;padding-top:4px;font-size:11px;color:#94a3b8}.footer{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}</style></head><body>
       <div class="hdr">
-        <div class="brand">${clinicName}<span>${docName} ${prof?.specialty ? `· ${prof.specialty}` : ''}</span></div>
+        <div class="brand">
+          ${prof?.logo_base64 ? `<img src="${prof.logo_base64}" style="max-height:48px;max-width:160px;object-fit:contain;display:block;margin-bottom:4px"/>` : ''}
+          ${clinicName}
+          <span>${docName} ${prof?.specialty ? `· ${prof.specialty}` : ''}</span>
+        </div>
         <div style="text-align:right">
           <div style="font-size:11px;color:#64748b">${c.date}</div>
           <div style="font-size:10px;color:#94a3b8;margin-top:2px">
@@ -319,9 +388,12 @@ function TabConsents({ pts, prof }) {
       </div>
       <div class="content">${c.content}</div>
       <div class="sig"><div class="sig-box">${c.signature?`<img src="${c.signature}"/>`:'<div style="height:70px"></div>'}<div class="sig-line">Firma del Paciente · ${getName(c.patient_id)}</div></div></div>
-      <div class="footer">${prof?.license ? `Cédula Profesional: ${prof.license} · ` : ''}Generado por Dentra · ${new Date().toLocaleDateString('es-MX')}</div>
+      <div class="footer">${prof?.license ? `Cédula Profesional: ${prof.license} · ` : ''}${clinicName}${address ? ` · ${address}` : ''}${phone ? ` · Tel: ${phone}` : ''} · ${new Date().toLocaleDateString('es-MX')}</div>
     </body></html>`;
-    const win=window.open('','_blank'); win.document.write(html); win.document.close(); win.onload=()=>win.print();
+    const win=window.open('','_blank'); 
+    win.document.write(html); 
+    win.document.close(); 
+    setTimeout(() => { if (!win.closed) win.print(); }, 500);
   };
 
   return (
@@ -347,8 +419,8 @@ function TabConsents({ pts, prof }) {
                 </div>
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
-                <button onClick={()=>exportConsentPDF(c, prof)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Exportar PDF"><Download size={15}/></button>
-                <button onClick={()=>setConfirmDel(c.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={15}/></button>
+                <button onClick={()=>exportConsentPDF(c, prof)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all tooltip-trigger" data-tip="Exportar PDF"><Download size={15}/></button>
+                <button onClick={()=>setConfirmDel(c.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all tooltip-trigger" data-tip="Eliminar"><Trash2 size={15}/></button>
               </div>
             </div>
           ))
@@ -463,7 +535,7 @@ function TabPlans({ pts }) {
                   <div><p className="font-semibold text-slate-700">{getName(plan.patient_id)}</p><p className="text-xs text-slate-400 mt-0.5">{plan.date} · {total} procedimientos</p></div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-slate-600">{pct}% completado</span>
-                    <button onClick={()=>setConfirmDel(plan.id)} className="icon-btn-danger"><Trash2 size={14}/></button>
+                    <button onClick={()=>setConfirmDel(plan.id)} className="icon-btn-danger tooltip-trigger" data-tip="Eliminar Plan"><Trash2 size={14}/></button>
                   </div>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-1.5 mb-4"><div className="bg-slate-700 h-1.5 rounded-full transition-all" style={{width:`${pct}%`}}/></div>
@@ -509,7 +581,7 @@ function TabPlans({ pts }) {
                     <p className="text-sm text-slate-700 flex-1">{item.treatment}</p>
                     {item.notes&&<p className="text-xs text-slate-400">{item.notes}</p>}
                     <span className={PRIORITY_BADGE[item.priority]||'badge badge-slate'}>{item.priority}</span>
-                    <button onClick={()=>setForm(p=>({...p,items:p.items.filter((_,idx)=>idx!==i)}))} className="icon-btn-danger p-1"><Trash2 size={12}/></button>
+                    <button onClick={()=>setForm(p=>({...p,items:p.items.filter((_,idx)=>idx!==i)}))} className="icon-btn-danger p-1 tooltip-trigger" data-tip="Quitar"><Trash2 size={12}/></button>
                   </div>
                 ))}</div>
               }
@@ -531,14 +603,17 @@ function TabPlans({ pts }) {
 export default function ClinicalRecords() {
   const [pts, setPts] = useState(() => pStore.getCached());
   const [prof, setProf] = useState(() => profStore.getCached());
+  const [profs, setProfs] = useState(() => profsStore.getCached());
   const [tab, setTab] = useState('historias');
 
   useEffect(() => { 
     pStore.get().then(setPts); 
     profStore.get().then(setProf);
+    profsStore.get().then(setProfs);
     const unsubs = [
       pStore.subscribe(setPts),
-      profStore.subscribe(setProf)
+      profStore.subscribe(setProf),
+      profsStore.subscribe(setProfs)
     ];
     return () => unsubs.forEach(fn => fn());
   }, []);
@@ -562,7 +637,7 @@ export default function ClinicalRecords() {
         ))}
       </div>
 
-      {tab==='historias'       && <TabHistorias       pts={pts} prof={prof}/>}
+      {tab==='historias'       && <TabHistorias       pts={pts} prof={prof} profs={profs}/>}
       {tab==='consentimientos' && <TabConsents         pts={pts} prof={prof}/>}
       {tab==='planes'          && <TabPlans            pts={pts} prof={prof}/>}
     </div>

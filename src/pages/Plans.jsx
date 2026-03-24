@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Plus, Trash2, ClipboardList, CheckCircle2, Circle, Download } from 'lucide-react';
-import { patients as pStore, plans as plStore } from '../lib/store';
+import { patients as pStore, plans as plStore, profile as profStore } from '../lib/store';
 import Modal from '../components/Modal';
 import Select from '../components/Select';
 import ConfirmModal from '../components/ConfirmModal';
@@ -12,6 +12,7 @@ const PRIORITIES  = ['Alta','Media','Baja'];
 export default function Plans() {
   const [pts, setPts]         = useState([]);
   const [list, setList]       = useState([]);
+  const [prof, setProf]       = useState(null);
   const [search, setSearch]   = useState('');
   const [modal, setModal]     = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
@@ -19,7 +20,11 @@ export default function Plans() {
   const [form, setForm]       = useState({ patient_id:'', date:new Date().toISOString().split('T')[0], notes:'', items:[] });
   const [newItem, setNewItem] = useState({ treatment:'', notes:'', priority:'Media' });
 
-  useEffect(() => { setPts(pStore.get()); setList(plStore.get()); }, []);
+  useEffect(() => { 
+    pStore.get().then(setPts);
+    plStore.get().then(setList);
+    profStore.get().then(setProf);
+  }, []);
   const reload  = () => setList(plStore.get());
   const getName = id => pts.find(p => p.id === id)?.name || 'Desconocido';
 
@@ -49,8 +54,12 @@ export default function Plans() {
 
   const exportPDF = (plan) => {
     const patientName = getName(plan.patient_id);
+    const clinicName = prof?.name || 'Consultorio Dental';
+    const address = prof?.show_address_in_pdfs !== false && prof?.address ? prof.address : '';
+    const phone = prof?.show_phone_in_pdfs !== false && prof?.phone ? prof.phone : '';
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>
       *{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#1e293b;padding:36px}
+      @media print { @page { margin: 0; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
       .hdr{display:flex;justify-content:space-between;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:20px}
       .brand{font-size:20px;font-weight:800;color:#1e293b}.brand span{font-size:11px;display:block;color:#94a3b8;font-weight:400}
       .item{display:flex;align-items:flex-start;gap:10px;padding:10px;background:#f8fafc;border-radius:8px;margin-bottom:8px}
@@ -59,7 +68,7 @@ export default function Plans() {
       .alta{background:#fee2e2;color:#dc2626}.media{background:#fef3c7;color:#d97706}.baja{background:#f1f5f9;color:#64748b}
       .footer{margin-top:28px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;color:#94a3b8;font-size:10px}
     </style></head><body>
-      <div class="hdr"><div class="brand">Dentra<span>Plan de Tratamiento</span></div><div style="text-align:right;font-size:11px;color:#64748b">${plan.date}</div></div>
+      <div class="hdr"><div class="brand">${prof?.logo_base64 ? `<img src="${prof?.logo_base64}" style="max-height:48px;max-width:160px;object-fit:contain;display:block;margin-bottom:4px"/>` : clinicName}<span>Plan de Tratamiento</span></div><div style="text-align:right;font-size:11px;color:#64748b">${address ? `<div>${address}</div>` : ''}${phone ? `<div>Tel: ${phone}</div>` : ''}<div style="margin-top:2px;font-weight:600">${plan.date}</div></div></div>
       <div style="margin-bottom:16px"><strong>Paciente:</strong> ${patientName}</div>
       ${plan.notes?`<div style="background:#f8fafc;padding:10px;border-radius:8px;margin-bottom:16px;font-size:12px;color:#64748b">${plan.notes}</div>`:''}
       ${(plan.items||[]).map((item,i) => `
@@ -73,7 +82,7 @@ export default function Plans() {
             ${item.notes?`<div style="font-size:12px;color:#64748b">${item.notes}</div>`:''}
           </div>
         </div>`).join('')}
-      <div class="footer">Generado por Dentra · Powered by Atlara · ${new Date().toLocaleDateString('es-MX')}</div>
+      <div class="footer">${clinicName}${address ? ` · ${address}` : ''}${phone ? ` · Tel: ${phone}` : ''} · ${new Date().toLocaleDateString('es-MX')}</div>
     </body></html>`;
     const win = window.open('', '_blank');
     win.document.write(html);
@@ -112,8 +121,8 @@ export default function Plans() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold text-slate-600">{pct}% completado</span>
-                      <button onClick={() => exportPDF(plan)} className="icon-btn"><Download size={14}/></button>
-                      <button onClick={() => setConfirmDel(plan.id)} className="icon-btn-danger"><Trash2 size={14}/></button>
+                      <button onClick={() => exportPDF(plan)} className="icon-btn tooltip-trigger tooltip-left" data-tip="Exportar PDF"><Download size={14}/></button>
+                      <button onClick={() => setConfirmDel(plan.id)} className="icon-btn-danger tooltip-trigger tooltip-left" data-tip="Eliminar Plan"><Trash2 size={14}/></button>
                     </div>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-1.5 mb-4">
